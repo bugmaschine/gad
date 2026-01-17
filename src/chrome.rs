@@ -13,7 +13,7 @@ use thirtyfour::ChromiumLikeCapabilities;
 use crate::download::{self, Downloader, InternalDownloadTask};
 use crate::utils::{remove_dir_all_ignore_not_exists, remove_file_ignore_not_exists};
 
-const UBLOCK_GITHUB_API_URL: &str = "https://api.github.com/repos/gorhill/uBlock/releases/latest";
+const UBLOCK_GITHUB_API_URL: &str = "https://api.github.com/repos/uBlockOrigin/uBOL-home/releases/latest";
 
 pub(crate) struct ChromeDriver<'a> {
     data_dir: &'a Path,
