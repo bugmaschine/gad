@@ -65,6 +65,10 @@ pub(crate) struct Args {
     #[arg(long, conflicts_with_all = ["concurrent_downloads", "retries", "limit_rate"])]
     pub(crate) mpv: bool,
 
+    /// Skip existing files when downloading
+    #[arg(long)]
+    pub(crate) skip_existing: bool,
+
     /// Enable debug mode
     #[arg(short, long)]
     pub(crate) debug: bool,

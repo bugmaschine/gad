@@ -1,10 +1,10 @@
 [package]
 name = "sdl"
-version = "0.2.0"
+version = "0.2.1"
 edition = "2021"
 rust-version = "1.75"
 readme = "README.md"
-repository = "https://github.com/Funami580/sdl"
+repository = "https://github.com/bugmaschine/sdl"
 license = "MIT"
 categories = ["command-line-utilities"]
 

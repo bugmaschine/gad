@@ -1,6 +1,8 @@
 # sdl
 Download multiple episodes from streaming sites
 
+This is a fork of a pull request with some added features.
+
 ## Supported sites
 ### German
 * [AniWorld](https://aniworld.to)
@@ -114,6 +116,8 @@ Options:
           The duration in milliseconds to wait [default: 60000]
       --mpv
           Play in mpv
+      --skip-existing
+          Skip existing files when downloading
   -d, --debug
           Enable debug mode
   -h, --help

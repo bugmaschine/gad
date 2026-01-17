@@ -287,7 +287,7 @@ async fn do_after_chrome_driver(
                 return true;
             }
         };
-
+        let skip_existing = args.skip_existing;
         let extractor_priorities = std::mem::take(&mut args.extractor_priorities).into_vec();
         let download_request = DownloadRequest {
             language: args.get_video_type(),
@@ -297,7 +297,7 @@ async fn do_after_chrome_driver(
 
         if let Some(episodes_downloader) = episodes_downloader {
             let (download_manager, sender) =
-                DownloadManager::new(episodes_downloader, max_concurrent, save_directory, series_info);
+                DownloadManager::new(episodes_downloader, max_concurrent, save_directory, series_info, skip_existing);
 
             let (downloader_result, _) = tokio::join!(
                 series_downloader.download(download_request, download_settings, sender),

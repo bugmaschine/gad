@@ -60,6 +60,7 @@ pub(crate) struct DownloadManager {
     max_concurrent: Option<usize>,
     save_directory: PathBuf,
     series_info: SeriesInfo,
+    skip_existing: bool,
 }
 
 impl DownloadManager {
@@ -68,6 +69,7 @@ impl DownloadManager {
         max_concurrent: Option<NonZeroU32>,
         save_directory: PathBuf,
         series_info: SeriesInfo,
+        skip_existing: bool,
     ) -> (Self, UnboundedSender<DownloadTask>) {
         let (tx, rx) = tokio::sync::mpsc::unbounded_channel::<DownloadTask>();
         let rx_stream = UnboundedReceiverStream::new(rx);
@@ -78,6 +80,7 @@ impl DownloadManager {
             max_concurrent: max_concurrent.map(|n| n.get() as usize),
             save_directory,
             series_info,
+            skip_existing,
         };
 
         (manager, tx)
@@ -88,20 +91,54 @@ impl DownloadManager {
         let download_future = self
             .rx_stream
             .for_each_concurrent(self.max_concurrent, |download_task| {
-                let output_name = get_episode_name(
-                    anime_name_for_file.as_deref(),
-                    Some(&download_task.language),
-                    &download_task.episode_info,
-                    false,
-                );
-                let output_path_no_extension = self.save_directory.join(&output_name);
-
-                let internal_task = InternalDownloadTask::new(output_path_no_extension, download_task.download_url)
-                    .output_path_has_extension(false)
-                    .referer(download_task.referer);
+                let anime_name_for_file = anime_name_for_file.clone();
+                let save_directory = self.save_directory.clone();
+                let skip_existing = self.skip_existing;
                 let downloader_borrowed = &self.downloader;
 
                 async move {
+                    let output_name = get_episode_name(
+                        anime_name_for_file.as_deref(),
+                        Some(&download_task.language),
+                        &download_task.episode_info,
+                        false,
+                    );
+                    let output_path_no_extension = save_directory.join(&output_name);
+
+                    // If user requested skipping existing files, check common output names
+                    if skip_existing {
+                        let mp4_path = output_path_no_extension.with_extension("mp4");
+                        let ts_path = output_path_no_extension.with_extension("ts");
+                        let bare_path = output_path_no_extension.clone();
+
+                        let mut exists = tokio::fs::metadata(&mp4_path).await.is_ok()
+                            || tokio::fs::metadata(&ts_path).await.is_ok()
+                            || tokio::fs::metadata(&bare_path).await.is_ok();
+
+                        // fallback: any file that starts with the output_name + '.' (e.g. "Name.ext")
+                        if !exists {
+                            if let Ok(mut rd) = tokio::fs::read_dir(&save_directory).await {
+                                while let Ok(Some(entry)) = rd.next_entry().await {
+                                    if let Ok(name) = entry.file_name().into_string() {
+                                        if name.starts_with(&output_name) && name.len() > output_name.len() && name.as_bytes()[output_name.len()] == b'.' {
+                                            exists = true;
+                                            break;
+                                        }
+                                    }
+                                }
+                            }
+                        }
+
+                        if exists {
+                            log::info!("skipping download for {}: file already exists", output_name);
+                            return;
+                        }
+                    }
+
+                    let internal_task = InternalDownloadTask::new(output_path_no_extension, download_task.download_url)
+                        .output_path_has_extension(false)
+                        .referer(download_task.referer);
+
                     if let Err(err) = downloader_borrowed.download_to_file(internal_task).await {
                         log::warn!("Failed download of {}: {:#}", output_name, err);
                     }
@@ -321,6 +358,8 @@ impl Downloader {
                 .await
         }
         .context("failed to open download target file")?;
+
+        // removed invalid/unfinished existence check here (handled earlier in DownloadManager)
 
         if is_m3u8 {
             self.m3u8_download(
