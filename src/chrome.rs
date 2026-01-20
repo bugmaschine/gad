@@ -66,7 +66,7 @@ impl<'a> ChromeDriver<'a> {
         caps.add_arg("window-size=1920,1080").unwrap();
         caps.add_arg("disable-infobars").unwrap();
         if headless {
-            caps.add_arg("--headless=old").unwrap();
+            caps.add_arg("--headless=new").unwrap();
             caps.add_arg("--log-level=3").unwrap();
             caps.add_exclude_switch("enable-logging").unwrap();
         }
