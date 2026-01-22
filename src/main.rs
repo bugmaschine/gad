@@ -253,6 +253,7 @@ async fn do_after_chrome_driver(
             let download_future = episodes_downloader.download_to_file(
                 InternalDownloadTask::new(output_path, extracted_video.url)
                     .output_path_has_extension(false)
+                    .skip_existing(args.skip_existing)
                     .referer(extracted_video.referer),
             );
 
@@ -293,6 +294,8 @@ async fn do_after_chrome_driver(
             language: args.get_video_type(),
             episodes: args.get_episodes_request(),
             extractor_priorities,
+            series_title: Some(series_info.title.clone()),
+            save_directory: Some(save_directory.clone()),
         };
 
         if let Some(episodes_downloader) = episodes_downloader {

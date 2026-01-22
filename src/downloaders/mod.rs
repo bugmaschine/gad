@@ -234,6 +234,8 @@ pub struct DownloadRequest {
     pub language: VideoType,
     pub episodes: EpisodesRequest,
     pub extractor_priorities: Vec<ExtractorMatch>,
+    pub series_title: Option<String>,
+    pub save_directory: Option<std::path::PathBuf>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -263,14 +265,16 @@ pub struct DownloadSettings<F: FnMut() -> Duration> {
     pub ddos_wait_episodes: Option<NonZeroU32>,
     pub ddos_wait_time: F,
     counter: u32,
+    skip_existing: bool,
 }
 
 impl<F: FnMut() -> Duration> DownloadSettings<F> {
-    pub fn new(ddos_wait_episodes: Option<NonZeroU32>, ddos_wait_time: F) -> Self {
+    pub fn new(ddos_wait_episodes: Option<NonZeroU32>, ddos_wait_time: F, skip_existing: bool) -> Self {
         Self {
             ddos_wait_episodes,
             ddos_wait_time,
             counter: 0,
+            skip_existing,
         }
     }
 

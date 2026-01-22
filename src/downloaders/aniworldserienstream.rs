@@ -1,4 +1,5 @@
 use std::cmp::Ordering;
+use std::env::{Args, args};
 use std::time::Duration;
 
 use anyhow::Context;
@@ -12,6 +13,7 @@ use super::{
     AllOrSpecific, DownloadRequest, DownloadSettings, DownloadTask, EpisodeInfo, EpisodeNumber, ExtractorMatch,
     InstantiatedDownloader, Language, SeriesInfo, VideoType,
 };
+use crate::download::{self, get_episode_name};
 use crate::downloaders::utils::sleep_random;
 use crate::downloaders::{Downloader, EpisodesRequest};
 use crate::extractors::{extract_video_url_with_extractor_from_url_unchecked, has_extractor_with_name_other_name};
@@ -319,6 +321,35 @@ impl<'driver, 'url, F: FnMut() -> Duration> Scraper<'driver, 'url, F> {
     }
 
     async fn scrape_episode(&mut self, season: u32, episode: u32, goto: bool) -> Result<(), anyhow::Error> {
+        if self.settings.skip_existing {
+            if let (Some(series_title), Some(save_directory)) =
+                (&self.request.series_title, &self.request.save_directory)
+            {
+                let anime_name_for_file = download::prepare_series_name_for_file(series_title);
+
+                for (video_type, _) in &self.language_selectors {
+                    let episode_info = EpisodeInfo {
+                        name: None,
+                        season_number: Some(season),
+                        episode_number: EpisodeNumber::Number(episode),
+                        max_episode_number_in_season: None,
+                    };
+
+                    let output_name = download::get_episode_name(
+                        anime_name_for_file.as_deref(),
+                        Some(video_type),
+                        &episode_info,
+                        false,
+                    );
+
+                    if download::check_if_episode_exists(save_directory, &output_name).await {
+                        log::info!("skipping scraping for {}: file already exists", output_name);
+                        return Ok(());
+                    }
+                }
+            }
+        }
+
         if goto {
             self.driver
                 .goto(self.parsed_url.get_episode_url(season, episode))

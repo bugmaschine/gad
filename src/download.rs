@@ -107,29 +107,7 @@ impl DownloadManager {
 
                     // If user requested skipping existing files, check common output names
                     if skip_existing {
-                        let mp4_path = output_path_no_extension.with_extension("mp4");
-                        let ts_path = output_path_no_extension.with_extension("ts");
-                        let bare_path = output_path_no_extension.clone();
-
-                        let mut exists = tokio::fs::metadata(&mp4_path).await.is_ok()
-                            || tokio::fs::metadata(&ts_path).await.is_ok()
-                            || tokio::fs::metadata(&bare_path).await.is_ok();
-
-                        // fallback: any file that starts with the output_name + '.' (e.g. "Name.ext")
-                        if !exists {
-                            if let Ok(mut rd) = tokio::fs::read_dir(&save_directory).await {
-                                while let Ok(Some(entry)) = rd.next_entry().await {
-                                    if let Ok(name) = entry.file_name().into_string() {
-                                        if name.starts_with(&output_name) && name.len() > output_name.len() && name.as_bytes()[output_name.len()] == b'.' {
-                                            exists = true;
-                                            break;
-                                        }
-                                    }
-                                }
-                            }
-                        }
-
-                        if exists {
+                        if check_if_episode_exists(&save_directory, &output_name).await {
                             log::info!("skipping download for {}: file already exists", output_name);
                             return;
                         }
@@ -137,6 +115,7 @@ impl DownloadManager {
 
                     let internal_task = InternalDownloadTask::new(output_path_no_extension, download_task.download_url)
                         .output_path_has_extension(false)
+                        .skip_existing(skip_existing)
                         .referer(download_task.referer);
 
                     if let Err(err) = downloader_borrowed.download_to_file(internal_task).await {
@@ -159,6 +138,7 @@ pub(crate) struct InternalDownloadTask {
     output_path: PathBuf,
     output_path_has_extension: bool,
     overwrite_file: bool,
+    skip_existing: bool,
     custom_message: Option<String>,
     referer: Option<String>,
 }
@@ -170,6 +150,7 @@ impl InternalDownloadTask {
             output_path,
             output_path_has_extension: true,
             overwrite_file: false,
+            skip_existing: false,
             custom_message: None,
             referer: None,
         }
@@ -182,6 +163,11 @@ impl InternalDownloadTask {
 
     pub(crate) fn overwrite_file(mut self, overwrite_file: bool) -> Self {
         self.overwrite_file = overwrite_file;
+        self
+    }
+
+    pub(crate) fn skip_existing(mut self, skip_existing: bool) -> Self {
+        self.skip_existing = skip_existing;
         self
     }
 
@@ -287,6 +273,16 @@ impl Downloader {
     }
 
     pub(crate) async fn download_to_file(&self, task: InternalDownloadTask) -> Result<(), anyhow::Error> {
+        if task.skip_existing {
+            if let Some(output_name) = task.output_path.file_name().and_then(|n| n.to_str()) {
+                let parent = task.output_path.parent().unwrap_or(std::path::Path::new("."));
+                if check_if_episode_exists(&parent.to_path_buf(), output_name).await {
+                    log::info!("skipping download for {}: file already exists", output_name);
+                    return Ok(());
+                }
+            }
+        }
+
         let url = Url::parse(&task.url).context("failed to parse URL")?;
         let response = get_response(
             self.client.as_ref(),
@@ -1375,6 +1371,31 @@ mod retry {
     }
 }
 
+pub(crate) async fn check_if_episode_exists(save_directory: &PathBuf, output_name: &str) -> bool {
+    let mp4_path = save_directory.join(format!("{}.mp4", output_name));
+    let ts_path = save_directory.join(format!("{}.ts", output_name));
+
+    if tokio::fs::metadata(&mp4_path).await.is_ok() || tokio::fs::metadata(&ts_path).await.is_ok() {
+        return true;
+    }
+
+    // fallback: any file that starts with the output_name followed by '.' or ' - '
+    if let Ok(mut rd) = tokio::fs::read_dir(&save_directory).await {
+        let dot_prefix = format!("{}.", output_name);
+        let title_prefix = format!("{} - ", output_name);
+
+        while let Ok(Some(entry)) = rd.next_entry().await {
+            if let Ok(name) = entry.file_name().into_string() {
+                if name.starts_with(&dot_prefix) || name.starts_with(&title_prefix) {
+                    return true;
+                }
+            }
+        }
+    }
+
+    false
+}
+
 fn is_m3u8_url(url: &Url) -> bool {
     url.path_segments()
         .and_then(|segments| segments.last())
@@ -1386,7 +1407,7 @@ fn is_m3u8_url(url: &Url) -> bool {
         .unwrap_or(false)
 }
 
-fn prepare_series_name_for_file(name: &str) -> Option<String> {
+pub fn prepare_series_name_for_file(name: &str) -> Option<String> {
     use regex::Regex;
 
     const NAME_LIMIT: usize = 160;

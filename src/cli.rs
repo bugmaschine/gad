@@ -115,7 +115,7 @@ impl Args {
         let wait_duration = Duration::from_millis(self.ddos_wait_ms as u64);
         let wait_fn = move || wait_duration;
 
-        DownloadSettings::new(self.ddos_wait_episodes.inner().copied(), wait_fn)
+        DownloadSettings::new(self.ddos_wait_episodes.inner().copied(), wait_fn, self.skip_existing)
     }
 }
 
