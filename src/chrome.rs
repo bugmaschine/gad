@@ -16,6 +16,7 @@ use crate::utils::{remove_dir_all_ignore_not_exists, remove_file_ignore_not_exis
 use zip_extensions::zip_extract::zip_extract;
 
 const UBLOCK_GITHUB_API_URL: &str = "https://api.github.com/repos/uBlockOrigin/uBOL-home/releases/latest";
+const UBLOCK_FALLBACK_DOWNLOAD_URL: &str = "https://github.com/uBlockOrigin/uBOL-home/releases/download/2026.201.1924/uBOLite_2026.201.1924.chromium.zip";
 
 pub(crate) struct ChromeDriver<'a> {
     data_dir: &'a Path,
@@ -206,76 +207,60 @@ impl<'a> ChromeDriver<'a> {
                 if err.kind() != ErrorKind::NotFound {
                     log::warn!("Failed to read current uBlock Origin version file: {err}");
                 }
-
                 None
             }
         };
 
-        let github_response = download::get_page_json(UBLOCK_GITHUB_API_URL, None, None, None).await?;
-
-        const UNEXPECT_JSON_ERR_MSG: &str = "unexpected GitHub API json response";
-        let serde_json::Value::Object(json_object) = github_response else {
-            anyhow::bail!(UNEXPECT_JSON_ERR_MSG)
-        };
-        let Some(serde_json::Value::String(latest_version)) = json_object.get("tag_name") else {
-            anyhow::bail!(UNEXPECT_JSON_ERR_MSG)
-        };
-
-        let download = if let Some(current_version) = current_version {
-            if latest_version == current_version {
-                log::trace!("uBlock Origin up-to-date");
-                false
-            } else {
-                log::info!("uBlock Origin out-of-date... Updating...");
-                true
+        // Attempt to get latest version info from GitHub
+        let latest_info = match download::get_page_json(UBLOCK_GITHUB_API_URL, None, None, None).await {
+            Ok(json) => {
+                let tag = json.get("tag_name").and_then(|v| v.as_str()).map(|s| s.to_string());
+                let asset_url = json.get("assets").and_then(|v| v.as_array()).and_then(|assets| {
+                    assets.iter().find(|a| a.get("name").and_then(|n| n.as_str()).map_or(false, |n| n.contains("chromium")))
+                        .and_then(|a| a.get("browser_download_url").and_then(|u| u.as_str()))
+                        .map(|s| s.to_string())
+                });
+                
+                if let (Some(tag), Some(url)) = (tag, asset_url) {
+                    Some((tag, url))
+                } else {
+                    log::warn!("GitHub API response missing required fields. Falling back...");
+                    None
+                }
             }
-        } else {
-            log::info!("uBlock Origin not installed... Installing...");
-            true
+            Err(err) => {
+                log::warn!("Failed to fetch latest uBlock from GitHub: {:#}. Using fallback URL...", err);
+                None
+            }
         };
 
-        if !download {
-            return Ok(());
+        // Determine final download URL and version name
+        let (version_to_install, download_url) = match latest_info {
+            Some((tag, url)) => (tag, url),
+            None => ("fallback".to_string(), UBLOCK_FALLBACK_DOWNLOAD_URL.to_string()),
+        };
+
+        // Check if we actually need to download
+        if let Some(cv) = current_version {
+            if cv == version_to_install && cv != "fallback" {
+                log::trace!("uBlock Origin up-to-date ({})", cv);
+                return Ok(());
+            }
         }
 
+        log::info!("Installing uBlock Origin version: {}", version_to_install);
+
+        // Perform Download and Extraction
         let ublock_download_file_path = self.data_dir.join("uBlock.zip");
+        remove_file_ignore_not_exists(&ublock_download_file_path).await?;
 
-        if let Err(err) = remove_file_ignore_not_exists(&ublock_download_file_path).await {
-            return Err(err).context("failed to remove old uBlock Origin asset file");
-        }
-
-        let Some(serde_json::Value::Array(assets)) = json_object.get("assets") else {
-            anyhow::bail!(UNEXPECT_JSON_ERR_MSG)
-        };
-        let mut found_asset = false;
-
-        for asset in assets {
-            let Some(serde_json::Value::String(asset_name)) = asset.get("name") else {
-                anyhow::bail!(UNEXPECT_JSON_ERR_MSG)
-            };
-
-            if !asset_name.contains("chromium") {
-                continue;
-            }
-
-            let Some(serde_json::Value::String(download_url)) = asset.get("browser_download_url") else {
-                anyhow::bail!(UNEXPECT_JSON_ERR_MSG)
-            };
-            self.downloader
-                .download_to_file(
-                    InternalDownloadTask::new(ublock_download_file_path.clone(), download_url.to_owned())
-                        .overwrite_file(true)
-                        .custom_message(Some("Downloading uBlock Origin".to_string())),
-                )
-                .await?;
-            found_asset = true;
-
-            break;
-        }
-
-        if !found_asset {
-            anyhow::bail!("could not find the latest uBlock Origin asset for Chromium");
-        }
+        self.downloader
+            .download_to_file(
+                InternalDownloadTask::new(ublock_download_file_path.clone(), download_url)
+                    .overwrite_file(true)
+                    .custom_message(Some("Downloading uBlock Origin".to_string())),
+            )
+            .await?;
 
         if let Err(err) = remove_dir_all_ignore_not_exists(ublock_dir).await {
             return Err(err).context("failed to remove old uBlock Origin extension directory");
@@ -292,7 +277,9 @@ impl<'a> ChromeDriver<'a> {
         }
 
         let _ = tokio::fs::remove_file(&ublock_download_file_path).await;
-        tokio::fs::write(&current_version_file, &latest_version)
+        
+        // Save the version (or "fallback") so we don't re-download every time if the API stays down
+        tokio::fs::write(&current_version_file, &version_to_install)
             .await
             .context("failed to update uBlock Origin version file")?;
 
