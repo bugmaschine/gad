@@ -10,14 +10,14 @@ import (
 	"sync"
 	"time"
 
-	"github.com/bugmaschine/sdl/internal/downloaders"
-	"github.com/bugmaschine/sdl/internal/extractors"
-	"github.com/bugmaschine/sdl/pkg/chrome"
-	"github.com/bugmaschine/sdl/pkg/cli"
-	"github.com/bugmaschine/sdl/pkg/dirs"
-	"github.com/bugmaschine/sdl/pkg/download"
-	"github.com/bugmaschine/sdl/pkg/ffmpeg"
-	"github.com/bugmaschine/sdl/pkg/logger"
+	"github.com/bugmaschine/gad/internal/downloaders"
+	"github.com/bugmaschine/gad/internal/extractors"
+	"github.com/bugmaschine/gad/pkg/chrome"
+	"github.com/bugmaschine/gad/pkg/cli"
+	"github.com/bugmaschine/gad/pkg/dirs"
+	"github.com/bugmaschine/gad/pkg/download"
+	"github.com/bugmaschine/gad/pkg/ffmpeg"
+	"github.com/bugmaschine/gad/pkg/logger"
 )
 
 func main() {
@@ -31,6 +31,8 @@ func main() {
 
 	// Set up logger
 	logger.InitDefaultLogger(args.Debug)
+
+	slog.Info("gad started")
 
 	// Create data dir
 	dataDir, err := dirs.GetDataDir()
@@ -58,7 +60,7 @@ func main() {
 	}
 
 	// Downloader for assets (FFmpeg, uBlock)
-	assetDownloader := download.NewDownloader("SDL/1.0", args.Debug, rateLimit)
+	assetDownloader := download.NewDownloader("gad/1.0", args.Debug, rateLimit)
 
 	// Create FFmpeg manager
 	ff := ffmpeg.New(dataDir)
@@ -79,8 +81,10 @@ func main() {
 	// Main work
 	if args.Url != "" {
 		if args.Extractor != "" {
+			slog.Debug("Single download", "url", args.Url, "extractor", args.Extractor)
 			handleSingleDownload(ctx, args, assetDownloader, chromeMgr, saveDir)
 		} else {
+			slog.Debug("Series download", "url", args.Url)
 			handleSeriesDownload(ctx, args, assetDownloader, chromeMgr, saveDir)
 		}
 	} else {

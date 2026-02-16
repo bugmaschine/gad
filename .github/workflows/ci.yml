@@ -18,15 +18,15 @@ jobs:
           - platform: ubuntu-latest
             os: linux
             arch: amd64
-            artifact-name: sdl-linux-x64
+            artifact-name: gad-linux-x64
           - platform: windows-latest
             os: windows
             arch: amd64
-            artifact-name: sdl-windows-x64.exe
+            artifact-name: gad-windows-x64.exe
           - platform: macos-latest
             os: darwin
             arch: arm64
-            artifact-name: sdl-macos-aarch64
+            artifact-name: gad-macos-aarch64
 
     runs-on: ${{ matrix.platform }}
 
@@ -43,7 +43,7 @@ jobs:
           GOOS: ${{ matrix.os }}
           GOARCH: ${{ matrix.arch }}
         run: |
-          go build -v -o ${{ matrix.artifact-name }} ./cmd/sdl/main.go
+          go build -v -o ${{ matrix.artifact-name }} ./cmd/gad/main.go
 
       - name: Test
         run: |

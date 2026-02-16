@@ -7,7 +7,7 @@ import (
 	"strings"
 	"unicode"
 
-	"github.com/bugmaschine/sdl/internal/downloaders"
+	"github.com/bugmaschine/gad/internal/downloaders"
 )
 
 func PrepareSeriesNameForFile(name string) string {

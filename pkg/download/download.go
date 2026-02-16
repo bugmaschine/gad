@@ -57,6 +57,7 @@ func (d *Downloader) SetFfmpegPath(path string) {
 }
 
 func (d *Downloader) DownloadToFile(ctx context.Context, task *DownloadTask) error {
+	slog.Debug("Starting download to file", "url", task.Url, "path", task.OutputPath)
 	if task.SkipExisting {
 		if _, err := os.Stat(task.OutputPath); err == nil {
 			slogInfo("skipping download for %s: file already exists", filepath.Base(task.OutputPath))
@@ -80,6 +81,7 @@ func (d *Downloader) DownloadToFile(ctx context.Context, task *DownloadTask) err
 	if err != nil {
 		return err
 	}
+	slog.Debug("Got response", "status", resp.Status, "content-type", resp.Header.Get("Content-Type"))
 	defer resp.Body.Close()
 
 	if resp.StatusCode != http.StatusOK {
@@ -115,8 +117,10 @@ func (d *Downloader) DownloadToFile(ctx context.Context, task *DownloadTask) err
 	defer targetFile.Close()
 
 	if isM3U8 {
+		slog.Debug("Detected M3U8 playlist, starting HLS download")
 		return d.m3u8Download(ctx, resp, task.Referer, outputPath, message)
 	} else {
+		slog.Debug("Starting simple file download")
 		return d.simpleDownload(ctx, resp, targetFile, message)
 	}
 }

@@ -1,4 +1,4 @@
-module github.com/bugmaschine/sdl
+module github.com/bugmaschine/gad
 
 go 1.25.7
 

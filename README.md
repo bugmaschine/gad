@@ -1,12 +1,9 @@
-# sdl
+# Go Aniworld Downloader (gad)
 Download multiple episodes from streaming sites.
 
 This is a fork of a pull request with some added features and is meant for my own workflow.
 Things that i might not value and are too much work to support will be removed, unless someone else wants to support them.
 
-Maybe i'll do a rewrite into Golang or something else in the future. 
-
-mpv support is broken, and thus it was removed, because i don't want to suport a feature i dont use.
 ## Supported sites
 ### German
 * [AniWorld](https://aniworld.to)
@@ -26,48 +23,48 @@ mpv support is broken, and thus it was removed, because i don't want to suport a
 ### Downloading a single episode
 By URL:
 ```bash
-sdl 'https://aniworld.to/anime/stream/yuruyuri-happy-go-lily/staffel-1/episode-1'
+gad 'https://aniworld.to/anime/stream/yuruyuri-happy-go-lily/staffel-1/episode-1'
 ```
 By specifying it explicitly:
 ```bash
-sdl -e 11 'https://aniworld.to/anime/stream/yuruyuri-happy-go-lily/staffel-2'
+gad -e 11 'https://aniworld.to/anime/stream/yuruyuri-happy-go-lily/staffel-2'
 ```
 
 ### Downloading an entire season
 By URL:
 ```bash
-sdl 'https://aniworld.to/anime/stream/yuruyuri-happy-go-lily/staffel-2'
-sdl 'https://aniworld.to/anime/stream/yuruyuri-happy-go-lily/filme'
+gad 'https://aniworld.to/anime/stream/yuruyuri-happy-go-lily/staffel-2'
+gad 'https://aniworld.to/anime/stream/yuruyuri-happy-go-lily/filme'
 ```
 By specifying it explicitly:
 ```bash
-sdl -s 2 'https://aniworld.to/anime/stream/yuruyuri-happy-go-lily'
-sdl -s 0 'https://aniworld.to/anime/stream/yuruyuri-happy-go-lily'
+gad -s 2 'https://aniworld.to/anime/stream/yuruyuri-happy-go-lily'
+gad -s 0 'https://aniworld.to/anime/stream/yuruyuri-happy-go-lily'
 ```
 
 ### Downloading multiple episodes
 ```bash
-sdl -e 1,2-6,9 'https://aniworld.to/anime/stream/yuruyuri-happy-go-lily/staffel-2'
+gad -e 1,2-6,9 'https://aniworld.to/anime/stream/yuruyuri-happy-go-lily/staffel-2'
 ```
 
 ### Downloading multiple seasons
 ```bash
-sdl -s 1-2,4 'https://aniworld.to/anime/stream/yuruyuri-happy-go-lily'
+gad -s 1-2,4 'https://aniworld.to/anime/stream/yuruyuri-happy-go-lily'
 ```
 
 ### Downloading all seasons
 ```bash
-sdl 'https://aniworld.to/anime/stream/yuruyuri-happy-go-lily'
+gad 'https://aniworld.to/anime/stream/yuruyuri-happy-go-lily'
 ```
 
 ### Downloading in other languages
 ```bash
-sdl -t gersub 'https://s.to/serie/stream/higurashi-no-naku-koro-ni/staffel-1/episode-1'
+gad -t gersub 'https://s.to/serie/stream/higurashi-no-naku-koro-ni/staffel-1/episode-1'
 ```
 Either dub or sub:
 ```bash
-sdl -t ger 'https://s.to/serie/stream/higurashi-no-naku-koro-ni/staffel-1/episode-1'
-sdl -t german 'https://s.to/serie/stream/higurashi-no-naku-koro-ni/staffel-1/episode-1'
+gad -t ger 'https://s.to/serie/stream/higurashi-no-naku-koro-ni/staffel-1/episode-1'
+gad -t german 'https://s.to/serie/stream/higurashi-no-naku-koro-ni/staffel-1/episode-1'
 ```
 If an episode has multiple languages, the general language preference is as follows:
 * English Anime Website: EngSub > EngDub
@@ -77,70 +74,49 @@ If an episode has multiple languages, the general language preference is as foll
 ### Prioritize specific extractors
 First try Filemoon, then Voe, and finally try every other possible extractor using the `*` fallback:
 ```bash
-sdl -p filemoon,voe,* 'https://aniworld.to/anime/stream/yuruyuri-happy-go-lily/staffel-1/episode-1'
+gad -p filemoon,voe,* 'https://aniworld.to/anime/stream/yuruyuri-happy-go-lily/staffel-1/episode-1'
 ```
 
 ### Downloading with extractor directly
 ```bash
-sdl -u 'https://streamtape.com/e/DXYPVBeKrpCkMwD'
-sdl -u=voe 'https://prefulfilloverdoor.com/e/8cu8qkojpsx9'
+gad -u 'https://streamtape.com/e/DXYPVBeKrpCkMwD'
+gad -u=voe 'https://prefulfilloverdoor.com/e/8cu8qkojpsx9'
 ```
 
 ### Help output
 ```
-Usage: sdl [OPTIONS] <URL>
+Usage:
+  gad [URL] [flags]
 
-Arguments:
-  <URL>  Download URL
-
-Options:
-      --type <VIDEO_TYPE>
-          Only download specific video type [possible values: raw, dub, sub]
-      --lang <LANGUAGE>
-          Only download specific language [possible values: english, german]
-  -t <TYPE_LANGUAGE>
-          Shorthand for language and video type
-  -e, --episodes <RANGES>
-          Only download specific episodes
-  -s, --seasons <RANGES>
-          Only download specific seasons
-  -p, --extractor-priorities <PRIORITIES>
-          Extractor priorities
-  -u, --extractor[=<NAME>]
-          Use underlying extractors directly
-  -N, --concurrent-downloads <INF|NUMBER>
-          Concurrent downloads [default: 5]
-  -r, --limit-rate <RATE>
-          Maximum download rate in bytes per second, e.g. 50K or 4.2MiB
-  -R, --retries <INF|NUMBER>
-          Number of download retries [default: 5]
-      --ddos-wait-episodes <NEVER|NUMBER>
-          Amount of requests before waiting [default: 4]
-      --ddos-wait-ms <MILLISECONDS>
-          The duration in milliseconds to wait [default: 60000]
-      --skip-existing
-          Skip existing files when downloading
-  -d, --debug
-          Enable debug mode
-  -h, --help
-          Print help
-  -V, --version
-          Print version
+Flags:
+      --browser                  Show browser window
+  -N, --concurrent int           Concurrent downloads (default 5)
+      --ddos-wait-episodes int   Amount of requests before waiting (default 4)
+      --ddos-wait-ms uint32      Duration in milliseconds to wait (default 60000)
+  -d, --debug                    Enable debug mode
+  -e, --episodes string          Only download specific episodes (e.g. 1-3,5)
+  -u, --extractor string         Use underlying extractors directly
+  -h, --help                     help for gad
+      --lang string              Only download specific language
+  -p, --priorities string        Extractor priorities (default "*")
+  -r, --rate string              Maximum download rate (default "inf")
+  -R, --retries int              Number of download retries (default 5)
+  -s, --seasons string           Only download specific seasons
+      --skip-existing            Skip existing files
+      --type string              Only download specific video type (raw, dub, sub)
+  -t, --type-language string     Shorthand for language and video type
 ```
 
 ## Notes
 If FFmpeg and ChromeDriver are not found in the `PATH`, they will be downloaded automatically.
 
-Also, I don't plan to add new sites or extractors, but you're welcome to create a Pull Request if you want to add one.
-
-By the way, it's also possible to use `sdl` as a library.
-
 ## Build from source
-Currently, Rust 1.75 or newer is required.
+Currently, Go 1.24 or newer is required.
 ```
-cargo build --release
+go build -o gad ./cmd/gad/main.go
 ```
-The resulting executable is found at `target/release/sdl`.
+The resulting executable is found at `gad`.
 
 ## Thanks
 * [aniworld_scraper](https://github.com/wolfswolke/aniworld_scraper) for the inspiration and showing how it could be done
+* [sdl](https://github.com/Funami580/sdl)

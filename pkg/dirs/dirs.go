@@ -15,12 +15,12 @@ func GetDataDir() (string, error) {
 	// For now, we use os.UserConfigDir() as a sensible cross-platform alternative for app data.
 	configDir, err := os.UserConfigDir()
 	if err == nil {
-		dataDir = filepath.Join(configDir, "sdl")
+		dataDir = filepath.Join(configDir, "gad")
 	} else {
 		// Fallback to executable location
 		exePath, err := os.Executable()
 		if err == nil {
-			dataDir = filepath.Join(filepath.Dir(exePath), "sdl-data")
+			dataDir = filepath.Join(filepath.Dir(exePath), "gad-data")
 		}
 	}
 

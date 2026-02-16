@@ -12,7 +12,7 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/bugmaschine/sdl/pkg/download"
+	"github.com/bugmaschine/gad/pkg/download"
 	"github.com/chromedp/cdproto/page"
 	"github.com/chromedp/chromedp"
 )

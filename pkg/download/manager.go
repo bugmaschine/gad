@@ -6,7 +6,7 @@ import (
 	"path/filepath"
 	"sync"
 
-	"github.com/bugmaschine/sdl/internal/downloaders"
+	"github.com/bugmaschine/gad/internal/downloaders"
 )
 
 type ManagerTask struct {
@@ -56,6 +56,7 @@ func (m *DownloadManager) ProgressDownloads(ctx context.Context) {
 	sem := make(chan struct{}, m.maxConcurrent)
 
 	for task := range m.tasks {
+		slog.Debug("Download manager received task", "url", task.DownloadUrl, "ep", task.EpisodeInfo)
 		wg.Add(1)
 		go func(t ManagerTask) {
 			defer wg.Done()
@@ -66,6 +67,7 @@ func (m *DownloadManager) ProgressDownloads(ctx context.Context) {
 
 			if m.skipExisting && cache != nil && cache.CheckIfEpisodeExists(outputName) {
 				slog.Info("skipping download for file: already exists", "file", outputName)
+				slog.Debug("File exists check passed", "file", outputName)
 				return
 			}
 
@@ -75,6 +77,8 @@ func (m *DownloadManager) ProgressDownloads(ctx context.Context) {
 
 			if err := m.downloader.DownloadToFile(ctx, dt); err != nil {
 				slog.Warn("Failed download", "file", outputName, "error", err)
+			} else {
+				slog.Debug("Download finished successfully", "file", outputName)
 			}
 		}(task)
 	}

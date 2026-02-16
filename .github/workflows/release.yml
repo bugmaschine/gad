@@ -16,15 +16,15 @@ jobs:
           - platform: ubuntu-latest
             os: linux
             arch: amd64
-            artifact-name: sdl-linux-x64
+            artifact-name: gad-linux-x64
           - platform: windows-latest
             os: windows
             arch: amd64
-            artifact-name: sdl-windows-x64.exe
+            artifact-name: gad-windows-x64.exe
           - platform: macos-latest
             os: darwin
             arch: arm64
-            artifact-name: sdl-macos-aarch64
+            artifact-name: gad-macos-aarch64
 
     runs-on: ${{ matrix.platform }}
 
@@ -41,29 +41,29 @@ jobs:
           GOOS: ${{ matrix.os }}
           GOARCH: ${{ matrix.arch }}
         run: |
-          go build -v -o ${{ matrix.artifact-name }} ./cmd/sdl/main.go
+          go build -v -o ${{ matrix.artifact-name }} ./cmd/gad/main.go
 
       - name: Get version
         id: version
         shell: bash
         run: |
           # Simple version extraction, could be improved
-          echo "SDL_VERSION=0.2.7" >> $GITHUB_ENV
+          echo "gad_VERSION=0.2.7" >> $GITHUB_ENV
 
       - name: Archive (Windows)
         if: ${{ matrix.os == 'windows' }}
         run: |
-          7z a -tzip -mm=Deflate sdl-${{ env.SDL_VERSION }}-windows-x64.zip ${{ matrix.artifact-name }}
+          7z a -tzip -mm=Deflate gad-${{ env.gad_VERSION }}-windows-x64.zip ${{ matrix.artifact-name }}
 
       - name: Archive (Unix)
         if: ${{ matrix.os != 'windows' }}
         run: |
-          gzip -c ${{ matrix.artifact-name }} > sdl-${{ env.SDL_VERSION }}-${{ matrix.os }}-${{ matrix.arch }}.gz
+          gzip -c ${{ matrix.artifact-name }} > gad-${{ env.gad_VERSION }}-${{ matrix.os }}-${{ matrix.arch }}.gz
           
       - name: Upload artifacts
         uses: softprops/action-gh-release@v1
         with:
           files: |
-            sdl-${{ env.SDL_VERSION }}-windows-x64.zip
-            sdl-${{ env.SDL_VERSION }}-linux-amd64.gz
-            sdl-${{ env.SDL_VERSION }}-darwin-arm64.gz
+            gad-${{ env.gad_VERSION }}-windows-x64.zip
+            gad-${{ env.gad_VERSION }}-linux-amd64.gz
+            gad-${{ env.gad_VERSION }}-darwin-arm64.gz

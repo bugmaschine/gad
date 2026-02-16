@@ -11,7 +11,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/bugmaschine/sdl/internal/extractors"
+	"github.com/bugmaschine/gad/internal/extractors"
 	"github.com/chromedp/cdproto/cdp"
 	"github.com/chromedp/chromedp"
 )
@@ -190,9 +190,9 @@ func (s *Scraper) Scrape(ctx context.Context) error {
 			if s.ParsedUrl.Season.HasEpisode {
 				return s.scrapeEpisode(ctx, s.ParsedUrl.Season.Season, s.ParsedUrl.Season.Episode, s.ParsedUrl.Season.Episode) // Max is itself for single episode
 			}
-			return s.scrapeSeason(ctx, s.ParsedUrl.Season.Season, s.Request.Episodes.Payload)
+			return s.scrapeSeason(ctx, s.ParsedUrl.Season.Season, AllOrSpecific{All: true})
 		}
-		return s.scrapeSeasons(ctx, s.Request.Episodes.Payload)
+		return s.scrapeSeasons(ctx, AllOrSpecific{All: true})
 	case EpisodesRequestEpisodes:
 		season := uint32(1)
 		if s.ParsedUrl.Season != nil {
@@ -239,13 +239,17 @@ func (s *Scraper) scrapeSeasons(ctx context.Context, payload AllOrSpecific) erro
 			seasons = append(seasons, uint32(num))
 		}
 	}
+	slog.Debug("Found seasons", "raw", seasonTexts, "parsed", seasons)
 	sort.Slice(seasons, func(i, j int) bool { return seasons[i] < seasons[j] })
 
 	for _, season := range seasons {
 		if s.shouldDownloadSeason(season, payload) {
+			slog.Debug("Queueing season for scraping", "season", season)
 			if err := s.scrapeSeason(ctx, season, AllOrSpecific{All: true}); err != nil {
 				slog.Error("Failed to scrape season", "season", season, "error", err)
 			}
+		} else {
+			slog.Debug("Skipping season due to filter", "season", season)
 		}
 	}
 	return nil
@@ -299,9 +303,12 @@ func (s *Scraper) scrapeSeason(ctx context.Context, season uint32, payload AllOr
 
 	for _, episode := range episodes {
 		if s.shouldDownloadEpisode(episode, payload) {
+			slog.Debug("Queueing episode for scraping", "season", season, "episode", episode)
 			if err := s.scrapeEpisode(ctx, season, episode, maxEpisodes); err != nil {
 				slog.Error("Failed to scrape episode", "season", season, "episode", episode, "error", err)
 			}
+		} else {
+			slog.Debug("Skipping episode due to filter", "season", season, "episode", episode)
 		}
 	}
 	return nil
@@ -357,6 +364,7 @@ func (s *Scraper) scrapeEpisode(ctx context.Context, season, episode, maxEpisode
 	if err != nil || langInfo.Key == "" {
 		return fmt.Errorf("failed to find language info")
 	}
+	slog.Debug("Found language info", "key", langInfo.Key, "type", langInfo.Type)
 
 	var videoType VideoType
 	if langInfo.Type == "dub" {
@@ -400,6 +408,7 @@ func (s *Scraper) sendStreamToDownloader(ctx context.Context, season, episode, m
 		}
 		absoluteUrl := base.ResolveReference(rel).String()
 
+		slog.Debug("Found stream hoster", "name", stream.Name, "url", absoluteUrl)
 		slog.Info("Trying hoster", "name", stream.Name, "url", absoluteUrl)
 
 		// Try to extract

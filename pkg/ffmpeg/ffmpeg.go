@@ -10,7 +10,7 @@ import (
 	"path/filepath"
 	"runtime"
 
-	"github.com/bugmaschine/sdl/pkg/download"
+	"github.com/bugmaschine/gad/pkg/download"
 )
 
 // Downloader is an interface that matches the required functionality for ffmpeg auto-download.

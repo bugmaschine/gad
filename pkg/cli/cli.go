@@ -7,7 +7,7 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/bugmaschine/sdl/internal/downloaders"
+	"github.com/bugmaschine/gad/internal/downloaders"
 	"github.com/spf13/cobra"
 )
 
@@ -228,7 +228,7 @@ func ParseRateLimit(input string) (float64, error) {
 
 func NewRootCommand(args *Args) *cobra.Command {
 	cmd := &cobra.Command{
-		Use:   "sdl [URL]",
+		Use:   "gad [URL]",
 		Short: "Download multiple episodes from streaming sites",
 		Args:  cobra.ExactArgs(1),
 		Run: func(cmd *cobra.Command, cmdArgs []string) {
