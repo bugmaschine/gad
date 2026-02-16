@@ -4,11 +4,7 @@ on:
   release:
     types: [published]
   push:
-    branches: [workflow-release-test]
-
-env:
-  CARGO_TERM_COLOR: always
-  RUST_MIN_STACK: 16777212
+    branches: [golang-rewrite]
 
 permissions:
   contents: write
@@ -18,51 +14,58 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        platform: [ubuntu-22.04, macos-latest, windows-latest]
         include:
-          - platform: ubuntu-22.04
-            artifact-path: ./target/release/sdl
-            artifact-platform-name: linux-x64
-            env-command: ">> $GITHUB_ENV"
-          - platform: macos-latest
-            artifact-path: ./target/release/sdl
-            artifact-platform-name: macos-aarch64
-            env-command: ">> $GITHUB_ENV"
+          - platform: ubuntu-latest
+            os: linux
+            arch: amd64
+            artifact-name: sdl-linux-x64
           - platform: windows-latest
-            artifact-path: ./target/release/sdl.exe
-            artifact-platform-name: windows-x64
-            env-command: "| Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append"
+            os: windows
+            arch: amd64
+            artifact-name: sdl-windows-x64.exe
+          - platform: macos-latest
+            os: darwin
+            arch: arm64
+            artifact-name: sdl-macos-aarch64
 
     runs-on: ${{ matrix.platform }}
-
-    timeout-minutes: 60
 
     steps:
       - uses: actions/checkout@v4
 
-      - name: Update Rust
-        run: rustup update
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.24'
 
-      - uses: swatinem/rust-cache@v2
-
-      - name: Build, get version
+      - name: Build
+        env:
+          GOOS: ${{ matrix.os }}
+          GOARCH: ${{ matrix.arch }}
         run: |
-          cargo run --release --bin sdl -- --help
-          echo "SDL_VERSION=$(cargo metadata --no-deps --format-version 1 | jq -r '.packages | .[0].version')" ${{ matrix.env-command }}
+          go build -v -o ${{ matrix.artifact-name }} ./cmd/sdl/main.go
+
+      - name: Get version
+        id: version
+        shell: bash
+        run: |
+          # Simple version extraction, could be improved
+          echo "SDL_VERSION=0.2.7" >> $GITHUB_ENV
 
       - name: Archive (Windows)
-        if: ${{ matrix.platform == 'windows-latest' }}
+        if: ${{ matrix.os == 'windows' }}
         run: |
-          7z a -tzip -mm=Deflate sdl-${{ env.SDL_VERSION }}-${{ matrix.artifact-platform-name }}.zip ${{ matrix.artifact-path }}
+          7z a -tzip -mm=Deflate sdl-${{ env.SDL_VERSION }}-windows-x64.zip ${{ matrix.artifact-name }}
 
       - name: Archive (Unix)
-        if: ${{ matrix.platform != 'windows-latest' }}
+        if: ${{ matrix.os != 'windows' }}
         run: |
-          gzip -c ${{ matrix.artifact-path }} > sdl-${{ env.SDL_VERSION }}-${{ matrix.artifact-platform-name }}.gz
+          gzip -c ${{ matrix.artifact-name }} > sdl-${{ env.SDL_VERSION }}-${{ matrix.os }}-${{ matrix.arch }}.gz
           
       - name: Upload artifacts
         uses: softprops/action-gh-release@v1
         with:
           files: |
-            sdl-${{ env.SDL_VERSION }}-${{ matrix.artifact-platform-name }}.zip
-            sdl-${{ env.SDL_VERSION }}-${{ matrix.artifact-platform-name }}.gz
+            sdl-${{ env.SDL_VERSION }}-windows-x64.zip
+            sdl-${{ env.SDL_VERSION }}-linux-amd64.gz
+            sdl-${{ env.SDL_VERSION }}-darwin-arm64.gz
