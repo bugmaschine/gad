@@ -1,0 +1,50 @@
+name: CI
+
+on:
+  push:
+    branches: ["**"]
+  pull_request:
+    branches: ["**"]
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - platform: ubuntu-latest
+            os: linux
+            arch: amd64
+            artifact-name: sdl-linux-x64
+          - platform: windows-latest
+            os: windows
+            arch: amd64
+            artifact-name: sdl-windows-x64.exe
+          - platform: macos-latest
+            os: darwin
+            arch: arm64
+            artifact-name: sdl-macos-aarch64
+
+    runs-on: ${{ matrix.platform }}
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.24'
+
+      - name: Build
+        env:
+          GOOS: ${{ matrix.os }}
+          GOARCH: ${{ matrix.arch }}
+        run: |
+          go build -v -o ${{ matrix.artifact-name }} ./cmd/sdl/main.go
+
+      - name: Test
+        run: |
+          go test -v ./...
