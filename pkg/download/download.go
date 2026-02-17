@@ -132,16 +132,22 @@ func (d *Downloader) ensureTotalBar() {
 		d.totalBar = d.progress.AddBar(0,
 			mpb.BarPriority(100), // Ensure it's at the bottom
 			mpb.PrependDecorators(
-				decor.Name("Total", decor.WC{W: 6}),
+				decor.Name("Total ", decor.WC{W: 6}),
 				decor.CountersKibiByte("% .2f / % .2f"),
 			),
-			mpb.AppendDecorators(
-				decor.EwmaETA(decor.ET_STYLE_GO, 90),
-				decor.Name(" ] "),
-				decor.AverageSpeed(0, "% .2f"),
-			),
+			d.downloadInfo(),
 		)
 	}
+}
+
+func (d *Downloader) downloadInfo() mpb.BarOption {
+	return mpb.AppendDecorators(
+		decor.Percentage(decor.WCSyncSpace),
+		decor.Name(" | "),
+		decor.AverageSpeed(decor.SizeB1024(0), "% .2f"),
+		decor.Name(" | "),
+		decor.AverageETA(decor.ET_STYLE_GO),
+	)
 }
 
 func (d *Downloader) addTotalPos(n int64) {
@@ -164,17 +170,13 @@ func (d *Downloader) simpleDownload(ctx context.Context, resp *http.Response, ta
 
 	d.ensureTotalBar()
 	d.addTotalSize(contentLength)
-
+	// idk???????????
 	bar := d.progress.AddBar(contentLength,
 		mpb.PrependDecorators(
 			decor.Name(message, decor.WC{W: len(message) + 1}),
 			decor.CountersKibiByte("% .2f / % .2f"),
 		),
-		mpb.AppendDecorators(
-			decor.EwmaETA(decor.ET_STYLE_GO, 90),
-			decor.Name(" ] "),
-			decor.AverageSpeed(0, "% .2f"),
-		),
+		d.downloadInfo(),
 	)
 
 	var reader io.Reader = resp.Body
@@ -265,16 +267,14 @@ func (d *Downloader) m3u8Download(ctx context.Context, resp *http.Response, refe
 
 	d.ensureTotalBar()
 
+	// per episode bar
+
 	bar := d.progress.AddBar(0, // Total will be updated as we go
 		mpb.PrependDecorators(
-			decor.Name(message, decor.WC{W: len(message) + 1}),
+			decor.Name(message+" ", decor.WC{W: len(message) + 1}),
 			decor.CountersKibiByte("% .2f / % .2f"),
 		),
-		mpb.AppendDecorators(
-			decor.EwmaETA(decor.ET_STYLE_GO, 90),
-			decor.Name(" ] "),
-			decor.AverageSpeed(0, "% .2f"),
-		),
+		d.downloadInfo(),
 	)
 
 	// Use a temporary .ts file for m3u8
