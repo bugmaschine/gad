@@ -1,2 +1,4 @@
 /target
-./gad
+*.mp4
+*.ts
+/gad

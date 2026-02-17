@@ -82,10 +82,16 @@ func main() {
 	if args.Url != "" {
 		if args.Extractor != "" {
 			slog.Debug("Single download", "url", args.Url, "extractor", args.Extractor)
-			handleSingleDownload(ctx, args, assetDownloader, chromeMgr, saveDir)
+			if err := handleSingleDownload(ctx, args, assetDownloader, chromeMgr, saveDir); err != nil {
+				slog.Error("Failed to handle single download", "error", err)
+				os.Exit(1)
+			}
+			os.Exit(0)
 		} else {
 			slog.Debug("Series download", "url", args.Url)
-			handleSeriesDownload(ctx, args, assetDownloader, chromeMgr, saveDir)
+			if err := handleSeriesDownload(ctx, args, assetDownloader, chromeMgr, saveDir); err != nil {
+				slog.Error("Failed to handle series download", "error", err)
+			}
 		}
 	} else {
 		slog.Error("Please specify a URL with -u")
@@ -93,22 +99,22 @@ func main() {
 	}
 }
 
-func handleSeriesDownload(ctx context.Context, args *cli.Args, d *download.Downloader, cm *chrome.ChromeManager, saveDir string) {
+func handleSeriesDownload(ctx context.Context, args *cli.Args, d *download.Downloader, cm *chrome.ChromeManager, saveDir string) (err error) {
 	dl, err := downloaders.GetDownloader(args.Url)
 	if err != nil {
 		slog.Error("Failed to get downloader", "error", err)
-		return
+		return err
 	}
 	if dl == nil {
 		slog.Error("No downloader supports this URL. Maybe use -e to specify an extractor for a single file?")
-		return
+		return fmt.Errorf("no downloader supports this URL")
 	}
 
 	// Browser session for scraping
 	scrapeCtx, cancel, err := cm.Get(ctx, !args.Browser, args.Debug)
 	if err != nil {
 		slog.Error("Failed to start browser", "error", err)
-		return
+		return err
 	}
 	defer cancel()
 
@@ -116,7 +122,7 @@ func handleSeriesDownload(ctx context.Context, args *cli.Args, d *download.Downl
 	info, err := dl.GetSeriesInfo(scrapeCtx)
 	if err != nil {
 		slog.Error("Failed to get series info", "error", err)
-		return
+		return err
 	}
 	slog.Info("Series", "title", info.Title)
 
@@ -126,9 +132,11 @@ func handleSeriesDownload(ctx context.Context, args *cli.Args, d *download.Downl
 	// Start manager in background
 	var wg sync.WaitGroup
 	wg.Add(1)
+	var managerErr error
+
 	go func() {
 		defer wg.Done()
-		manager.ProgressDownloads(ctx)
+		managerErr = manager.ProgressDownloads(ctx)
 	}()
 
 	// Feed tasks from downloader to manager
@@ -142,6 +150,11 @@ func handleSeriesDownload(ctx context.Context, args *cli.Args, d *download.Downl
 			})
 		}
 		manager.Close()
+	}()
+
+	defer func() {
+		close(taskChan)
+		wg.Wait()
 	}()
 
 	settings := downloaders.DownloadSettings{
@@ -158,14 +171,15 @@ func handleSeriesDownload(ctx context.Context, args *cli.Args, d *download.Downl
 	slog.Info("Starting scrape...")
 	if err := dl.Download(scrapeCtx, req, settings, taskChan); err != nil {
 		slog.Error("Scrape failed", "error", err)
+		return err
 	}
 
-	close(taskChan)
-	wg.Wait()
 	slog.Info("Done!")
+
+	return managerErr
 }
 
-func handleSingleDownload(ctx context.Context, args *cli.Args, d *download.Downloader, cm *chrome.ChromeManager, saveDir string) {
+func handleSingleDownload(ctx context.Context, args *cli.Args, d *download.Downloader, cm *chrome.ChromeManager, saveDir string) error {
 	slog.Info("Extracting video URL...", "url", args.Url)
 
 	// If it needs chrome (complex extractors), we would handle that here.
@@ -173,11 +187,11 @@ func handleSingleDownload(ctx context.Context, args *cli.Args, d *download.Downl
 	ext, err := extractors.ExtractVideoUrl(ctx, args.Url, "", "")
 	if err != nil {
 		slog.Error("Failed to extract video URL", "error", err)
-		return
+		return err
 	}
 	if ext == nil {
 		slog.Error("No extractor supported this URL")
-		return
+		return fmt.Errorf("no extractor supported this URL")
 	}
 
 	timestamp := time.Now().Format("2006-01-02_15-04-05.000")
@@ -190,7 +204,9 @@ func handleSingleDownload(ctx context.Context, args *cli.Args, d *download.Downl
 	slog.Info("Starting download...", "url", ext.Url)
 	if err := d.DownloadToFile(ctx, task); err != nil {
 		slog.Error("Download failed", "error", err)
+		return err
 	}
 
 	d.Wait()
+	return nil
 }

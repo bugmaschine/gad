@@ -48,12 +48,13 @@ func (m *DownloadManager) Close() {
 	close(m.tasks)
 }
 
-func (m *DownloadManager) ProgressDownloads(ctx context.Context) {
+func (m *DownloadManager) ProgressDownloads(ctx context.Context) error {
 	seriesName := PrepareSeriesNameForFile(m.seriesInfo.Title)
 	cache, _ := NewDirectoryCache(m.saveDir)
 
 	var wg sync.WaitGroup
 	sem := make(chan struct{}, m.maxConcurrent)
+	errChan := make(chan error, 1)
 
 	for task := range m.tasks {
 		slog.Debug("Download manager received task", "url", task.DownloadUrl, "ep", task.EpisodeInfo)
@@ -77,6 +78,11 @@ func (m *DownloadManager) ProgressDownloads(ctx context.Context) {
 
 			if err := m.downloader.DownloadToFile(ctx, dt); err != nil {
 				slog.Warn("Failed download", "file", outputName, "error", err)
+
+				select {
+				case errChan <- err:
+				default:
+				}
 			} else {
 				slog.Debug("Download finished successfully", "file", outputName)
 			}
@@ -84,4 +90,12 @@ func (m *DownloadManager) ProgressDownloads(ctx context.Context) {
 	}
 
 	wg.Wait()
+
+	select {
+	case err := <-errChan:
+		return err
+	default:
+		return nil
+	}
+
 }
