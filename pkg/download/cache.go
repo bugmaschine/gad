@@ -49,3 +49,22 @@ func (c *DirectoryCache) CheckIfEpisodeExists(name string) bool {
 
 	return false
 }
+
+func (c *DirectoryCache) HasPrefix(prefix string) bool {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+
+	for f := range c.files {
+		if len(f) >= len(prefix) && f[:len(prefix)] == prefix {
+			// If the next character is a digit, then it's a collision (e.g. S01E10 matching S01E105)
+			if len(f) > len(prefix) {
+				nextChar := f[len(prefix)]
+				if nextChar >= '0' && nextChar <= '9' {
+					continue
+				}
+			}
+			return true
+		}
+	}
+	return false
+}

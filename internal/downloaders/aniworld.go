@@ -302,6 +302,11 @@ func (s *Scraper) scrapeSeason(ctx context.Context, season uint32, payload AllOr
 	}
 
 	for _, episode := range episodes {
+		if s.Settings.CheckIfExists != nil && s.Settings.CheckIfExists(season, episode, maxEpisodes, nil) {
+			slog.Info("Skipping episode because it already exists", "season", season, "episode", episode)
+			continue
+		}
+
 		if s.shouldDownloadEpisode(episode, payload) {
 			slog.Debug("Queueing episode for scraping", "season", season, "episode", episode)
 			if err := s.scrapeEpisode(ctx, season, episode, maxEpisodes); err != nil {
@@ -373,6 +378,10 @@ func (s *Scraper) scrapeEpisode(ctx context.Context, season, episode, maxEpisode
 		videoType = VideoType{Type: VideoTypeSub, Language: LanguageGerman}
 	}
 
+	if s.Settings.CheckIfExists != nil && s.Settings.CheckIfExists(season, episode, maxEpisodes, &videoType) {
+		slog.Info("Skipping episode because it already exists", "season", season, "episode", episode)
+		return nil
+	}
 	return s.sendStreamToDownloader(ctx, season, episode, maxEpisodes, langInfo.Key, videoType)
 }
 

@@ -112,6 +112,7 @@ type DownloadSettings struct {
 	DdosWaitEpisodes uint32
 	DdosWaitMs       uint32
 	SkipExisting     bool
+	CheckIfExists    func(season, episode, maxEpisodes uint32, videoType *VideoType) bool
 }
 
 type DownloadRequest struct {

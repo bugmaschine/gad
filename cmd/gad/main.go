@@ -97,6 +97,8 @@ func main() {
 			if line == "" || strings.HasPrefix(line, "#") {
 				continue
 			}
+			// as queue is meant for keeping a library up to date, skip existing is forced to be on.
+			args.SkipExisting = true
 			// For simplicity, we just set the URL and call the handler for each line.
 			args.Url = line
 			slog.Debug("Processing URL from queue", "url", args.Url)
@@ -208,8 +210,28 @@ func handleSeriesDownload(ctx context.Context, args *cli.Args, d *download.Downl
 		wg.Wait()
 	}()
 
+	seriesNameForCache := download.PrepareSeriesNameForFile(info.Title)
+	cache, _ := download.NewDirectoryCache(saveDir)
+
 	settings := downloaders.DownloadSettings{
 		SkipExisting: args.SkipExisting,
+		CheckIfExists: func(season, episode, maxEpisodes uint32, videoType *downloaders.VideoType) bool {
+			if !args.SkipExisting || cache == nil {
+				return false
+			}
+
+			// If videoType is nil, check by prefix using a dummy videoType and trimming it
+			if videoType == nil {
+				epInfo := downloaders.EpisodeInfo{Season: season, Episode: episode, MaxEpisodes: maxEpisodes}
+				// We build the name with no videoType and no title for a clean prefix
+				prefix := download.GetEpisodeName(seriesNameForCache, nil, &epInfo, false)
+				return cache.HasPrefix(prefix)
+			}
+
+			epInfo := downloaders.EpisodeInfo{Season: season, Episode: episode, MaxEpisodes: maxEpisodes}
+			outputName := download.GetEpisodeName(seriesNameForCache, videoType, &epInfo, false)
+			return cache.CheckIfEpisodeExists(outputName)
+		},
 	}
 
 	req := downloaders.DownloadRequest{
