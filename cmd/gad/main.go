@@ -20,6 +20,7 @@ import (
 	"github.com/bugmaschine/gad/pkg/download"
 	"github.com/bugmaschine/gad/pkg/ffmpeg"
 	"github.com/bugmaschine/gad/pkg/logger"
+	"github.com/bugmaschine/gad/pkg/utils"
 )
 
 func main() {
@@ -161,6 +162,20 @@ func handleSeriesDownload(ctx context.Context, args *cli.Args, d *download.Downl
 		return err
 	}
 	slog.Info("Series", "title", info.Title)
+
+	if args.QueueFile != "" {
+		slog.Debug("Queue file there, doing special stuff")
+		folderName := utils.CleanFolderName(info.Title)
+		// maybe allow setting a custom folder name. but i'm too lazy for now.
+		saveDir = filepath.Join(saveDir, "downloads", folderName)
+		slog.Info("Saving to", "directory", saveDir)
+
+		if err := os.MkdirAll(saveDir, 0755); err != nil {
+			slog.Error("Failed to create save directory", "error", err, "path", saveDir)
+			return err
+		}
+
+	}
 
 	manager := download.NewDownloadManager(d, args.ConcurrentDownloads, saveDir, *info, args.SkipExisting)
 	taskChan := make(chan *downloaders.DownloadTaskWrapper, 50)
