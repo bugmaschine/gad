@@ -21,7 +21,7 @@ This is a fork of a pull request which I rewrote in go, as I don't use rust that
 
 ### Downloading from a queue file
 ```bash
-gad -q queue.txt --skip-existing
+gad -q queue.txt
 ```
 
 Queue file contents (you can comment out lines and it will be ignored):
