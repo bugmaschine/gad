@@ -146,7 +146,7 @@ func main() {
 			}
 		}
 	} else {
-		slog.Error("Please specify a URL with -u")
+		slog.Error("Please specify a URL")
 		os.Exit(1)
 	}
 }
