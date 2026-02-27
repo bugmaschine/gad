@@ -41,12 +41,15 @@ func (f *Ffmpeg) AutoDownload(ctx context.Context, downloader Downloader) (strin
 		SetOverwriteFile(true).
 		SetCustomMessage("Downloading FFmpeg")
 
+	task.OutputPathHasExtension = true
+
 	err = downloader.DownloadToFile(ctx, task)
 	if err != nil {
 		return "", fmt.Errorf("failed to download ffmpeg: %w", err)
 	}
 
 	ffmpegPath := f.getFfmpegDataPath(false)
+
 	err = f.decompressGzip(gzipPath, ffmpegPath)
 	if err != nil {
 		return "", err
