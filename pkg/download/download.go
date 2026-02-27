@@ -170,7 +170,8 @@ func (d *Downloader) simpleDownload(ctx context.Context, resp *http.Response, ta
 
 	d.ensureTotalBar()
 	d.addTotalSize(contentLength)
-	// idk???????????
+
+	// generic progress bar
 	bar := d.progress.AddBar(contentLength,
 		mpb.PrependDecorators(
 			decor.Name(message, decor.WC{W: len(message) + 1}),

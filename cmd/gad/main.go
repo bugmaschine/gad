@@ -182,7 +182,6 @@ func handleSeriesDownload(ctx context.Context, args *cli.Args, d *download.Downl
 	if args.QueueFile != "" {
 		slog.Debug("Queue file there, doing special stuff")
 		folderName := utils.CleanFolderName(info.Title)
-		// maybe allow setting a custom folder name. but i'm too lazy for now.
 		saveDir = filepath.Join(saveDir, folderName)
 		slog.Info("Saving to", "directory", saveDir)
 
