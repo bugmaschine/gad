@@ -1,6 +1,14 @@
 # Go Aniworld Downloader (gad)
 
-This is a fork of a pull request which I rewrote in go, as I don't use rust that often. It's mostly meant for my own use, as i need some custom features.
+A CLI tool for downloading anime from Aniworld, rewritten in Go for speed and maintainability. Forked and evolved from [sdl](https://github.com/Funami580/sdl).
+
+The main changes are the following:
+* Rewritten in Go
+* Queue mode (basically keeps a library up to date)
+* Logging to file
+* Some smaller changes
+
+It mostly keeps compatibility with the original sdl, including things like filenames.
 
 ## Supported sites
 ### German
@@ -31,6 +39,21 @@ https://aniworld.to/anime/stream/you-and-i-are-polar-opposites
 https://aniworld.to/anime/stream/yuruyuri-happy-go-lily # this is an example of another comment
 ```
 
+this will make the following folder structure:
+```downloads/
+├── You and I Are Polar Opposites
+│   ├── You and I Are Polar Opposites - S01E01 - GerDub.mp4
+│   ├── You and I Are Polar Opposites - S01E02 - GerDub.mp4
+│   └── ...
+├── Yuruyuri Happy Go Lily
+│   ├── Yuruyuri Happy Go Lily - S01E01 - GerDub.mp4
+│   ├── Yuruyuri Happy Go Lily - S01E02 - GerDub.mp4
+│   └── ...
+└── SPY x FAMILY
+    ├── SPY x FAMILY - S00E01 - GerDub.mp4
+    ├── SPY x FAMILY - S01E01 - GerDub.mp4
+    └── ...
+```
 ### Downloading a single episode
 By URL:
 ```bash
@@ -109,6 +132,8 @@ Flags:
   -u, --extractor string         Use underlying extractors directly
   -h, --help                     help for gad
       --lang string              Only download specific language
+  -l, --log string               Path to log file. If not set, logs will only be printed to console. WARNING: This will append to the log file.
+  -o, --output-folder string     In queue mode, each series will get an own folder inside it. In default mode it gets used as save directory directly. (default "downloads")
   -p, --priorities string        Extractor priorities (default "*")
   -q, --queue-file string        Path to the file containing URLs to download
   -r, --rate string              Maximum download rate (default "inf")
