@@ -12,6 +12,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"runtime"
+	"strconv"
 	"strings"
 
 	"github.com/bugmaschine/gad/pkg/download"
@@ -139,7 +140,7 @@ func (m *ChromeManager) Get(ctx context.Context, headless, debug bool) (context.
 }
 
 func (m *ChromeManager) prepareChromium() (string, error) {
-	// check if chromium is installed locally
+	// check if chromium is installed locally. it may not be the newest version, but i think the system admin will keep it up to date.
 	for _, bin := range []string{"chromium", "chromium-browser", "google-chrome", "google-chrome-stable"} {
 		if path, err := exec.LookPath(bin); err == nil {
 			slog.Debug("Using system chromium", "path", path)
@@ -149,7 +150,9 @@ func (m *ChromeManager) prepareChromium() (string, error) {
 
 	platform, zipName, execRelPath := getPlatformInfo()
 	chromeDir := filepath.Join(m.dataDir, "chromium_bin")
+	slog.Debug("Chromium directory", "dir", chromeDir)
 	fullExecPath := filepath.Join(chromeDir, execRelPath)
+	slog.Debug("Chromium executable path", "path", fullExecPath)
 	versionFile := filepath.Join(m.dataDir, "current_chromium_version")
 
 	if checkedForChromeUpdates {
@@ -161,29 +164,37 @@ func (m *ChromeManager) prepareChromium() (string, error) {
 	slog.Debug("Checking for Chromium snapshot updates...")
 
 	// ask google for the latest revision
+	slog.Debug("Fetching latest Chromium revision from", "url", fmt.Sprintf(LastChangeURL, platform))
 	resp, err := http.Get(fmt.Sprintf(LastChangeURL, platform))
-	var latestRevision string
+	var latestRemoteRevision string
 	if err == nil {
 		defer resp.Body.Close()
 		body, _ := io.ReadAll(resp.Body)
-		latestRevision = strings.TrimSpace(string(body))
+		latestRemoteRevision = strings.TrimSpace(string(body))
 	} else {
 		slog.Warn("Failed to fetch latest Chromium revision", "error", err)
 	}
 
 	// check if we already have the latest version
 	currentVersionBytes, _ := os.ReadFile(versionFile)
-	currentRevision := strings.TrimSpace(string(currentVersionBytes))
+	currentLocalRevision := strings.TrimSpace(string(currentVersionBytes))
 
-	if latestRevision != "" && currentRevision == latestRevision {
+	// convert to int for comparison to prevent downgrades, because google cant manage to return a consistent revision number
+	latestRevInt, _ := strconv.Atoi(latestRemoteRevision)
+	currentRevInt, _ := strconv.Atoi(currentLocalRevision)
+	slog.Debug("Chromium versions", "local", currentRevInt, "remote", latestRevInt)
+
+	if latestRemoteRevision != "" && currentRevInt >= latestRevInt {
 		if _, err := os.Stat(fullExecPath); err == nil {
+			slog.Debug("Chromium up-to-date (or newer)", "local", currentRevInt, "remote", latestRevInt)
 			checkedForChromeUpdates = true
+
 			return fullExecPath, nil
 		}
 	}
 
 	// If network failed but we have an existing installation, use it as fallback
-	if latestRevision == "" {
+	if latestRemoteRevision == "" {
 		if _, err := os.Stat(fullExecPath); err == nil {
 			slog.Warn("Could not check for Chromium updates, using existing installation")
 			checkedForChromeUpdates = true
@@ -191,11 +202,10 @@ func (m *ChromeManager) prepareChromium() (string, error) {
 		}
 		return "", fmt.Errorf("chromium not found and could not fetch latest revision")
 	}
-
-	slog.Info("Downloading chromium...", "revision", latestRevision)
+	slog.Info("Downloading chromium...", "revision", latestRemoteRevision)
 
 	// download from google
-	downloadURL := fmt.Sprintf(ChromiumBaseURL, platform, latestRevision, zipName)
+	downloadURL := fmt.Sprintf(ChromiumBaseURL, platform, latestRemoteRevision, zipName)
 	tmpZip := filepath.Join(m.dataDir, "chrome_temp.zip")
 
 	task := download.NewDownloadTask(tmpZip, downloadURL).
@@ -220,7 +230,7 @@ func (m *ChromeManager) prepareChromium() (string, error) {
 	}
 
 	// save revision
-	_ = os.WriteFile(versionFile, []byte(latestRevision), 0644)
+	_ = os.WriteFile(versionFile, []byte(latestRemoteRevision), 0644)
 	checkedForChromeUpdates = true
 
 	return fullExecPath, nil
