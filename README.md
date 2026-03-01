@@ -40,7 +40,8 @@ https://aniworld.to/anime/stream/yuruyuri-happy-go-lily # this is an example of 
 ```
 
 this will make the following folder structure:
-```downloads/
+```
+downloads/
 ├── You and I Are Polar Opposites
 │   ├── You and I Are Polar Opposites - S01E01 - GerDub.mp4
 │   ├── You and I Are Polar Opposites - S01E02 - GerDub.mp4
