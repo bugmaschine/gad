@@ -198,7 +198,7 @@ func (m *ChromeManager) prepareChromium() (string, error) {
 	downloadURL := fmt.Sprintf(ChromiumBaseURL, platform, latestRevision, zipName)
 	tmpZip := filepath.Join(m.dataDir, "chrome_temp.zip")
 
-	task := download.NewDownloadTask(downloadURL, tmpZip).
+	task := download.NewDownloadTask(tmpZip, downloadURL).
 		SetOverwriteFile(true).
 		SetCustomMessage("Downloading Chromium")
 	task.OutputPathHasExtension = true
