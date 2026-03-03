@@ -71,7 +71,7 @@ func (m *ChromeManager) Get(ctx context.Context, headless, debug bool) (context.
 		chromedp.DisableGPU, // Safer across platforms
 	}
 
-	if headless && !debug {
+	if headless {
 		// apparently the new headless mode is good??
 		opts = append(opts, chromedp.Flag("headless", "new"))
 	}

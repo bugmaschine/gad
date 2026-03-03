@@ -32,6 +32,14 @@ func main() {
 		os.Exit(1)
 	}
 
+	if args.Debug {
+		fmt.Println("Debug mode enabled")
+		if args.LogFile == "" {
+			args.LogFile = "debug.log"
+			fmt.Printf("Logging to file: %s\n", args.LogFile)
+		}
+	}
+
 	// Set up logger
 	logger.InitDefaultLogger(args.Debug, args.LogFile)
 
@@ -181,16 +189,37 @@ func handleSeriesDownload(ctx context.Context, args *cli.Args, d *download.Downl
 	// maybe make this an option, idk.
 	if args.QueueFile != "" {
 		slog.Debug("Queue file there, doing special stuff")
-		folderName := utils.CleanFolderName(info.Title)
-		saveDir = filepath.Join(saveDir, folderName)
-		slog.Info("Saving to", "directory", saveDir)
 
+		// in case we dont have a output base folder yet, we will create one
 		if err := os.MkdirAll(saveDir, 0755); err != nil {
 			slog.Error("Failed to create save directory", "error", err, "path", saveDir)
 			return err
 		}
 
+		// check if similar folder exists, and if it does, choose it.
+		folderName := utils.CleanFolderName(info.Title)
+		similarFolder, err := utils.FindSimilarFolder(saveDir, folderName)
+		if err != nil {
+			slog.Error("Failed to check for similar folders", "error", err)
+			return err
+		}
+		slog.Debug("similar folder before check")
+		if similarFolder != "" {
+			slog.Info("Found similar folder, using it", "folder", similarFolder)
+			saveDir = similarFolder
+		} else {
+			slog.Info("No similar folder found, will create new one", "folder", folderName)
+			saveDir = filepath.Join(saveDir, folderName)
+			slog.Info("Saving to", "directory", saveDir)
+
+			if err := os.MkdirAll(saveDir, 0755); err != nil {
+				slog.Error("Failed to create save directory", "error", err, "path", saveDir)
+				return err
+			}
+		}
 	}
+
+	os.Exit(1)
 
 	manager := download.NewDownloadManager(d, args.ConcurrentDownloads, saveDir, *info, args.SkipExisting)
 	taskChan := make(chan *downloaders.DownloadTaskWrapper, 50)
