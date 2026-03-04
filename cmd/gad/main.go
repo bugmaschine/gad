@@ -219,8 +219,6 @@ func handleSeriesDownload(ctx context.Context, args *cli.Args, d *download.Downl
 		}
 	}
 
-	os.Exit(1)
-
 	manager := download.NewDownloadManager(d, args.ConcurrentDownloads, saveDir, *info, args.SkipExisting)
 	taskChan := make(chan *downloaders.DownloadTaskWrapper, 50)
 
