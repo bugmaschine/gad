@@ -24,41 +24,71 @@ func FindSimilarFolder(baseDir, target string) (string, error) {
 	}
 
 	targetNorm := normalize(target)
-	targetTokens := strings.Fields(targetNorm)
+	var bestMatch string
+	var highestScore float64 = 0.0
+
+	// Minimum threshold to consider a match "good"
+	const threshold = 0.4
 
 	for _, e := range entries {
 		if !e.IsDir() {
 			continue
 		}
 
-		entryNorm := normalize(e.Name())
-		entryTokens := strings.Fields(entryNorm)
+		entryName := e.Name()
+		entryNorm := normalize(entryName)
 
-		if tokensOverlap(entryTokens, targetTokens) {
-			return filepath.Join(baseDir, e.Name()), nil
+		// Calculate similarity (0.0 to 1.0)
+		score := calculateSimilarity(targetNorm, entryNorm)
+
+		if score > highestScore {
+			highestScore = score
+			bestMatch = filepath.Join(baseDir, entryName)
 		}
 	}
 
-	return "", fmt.Errorf("Not found")
+	if highestScore > threshold {
+		return bestMatch, nil
+	}
+
+	return "", fmt.Errorf("no sufficiently similar folder found (best score: %.2f)", highestScore)
 }
 
-func tokensOverlap(a, b []string) bool {
-	set := map[string]struct{}{}
-	for _, x := range a {
-		set[x] = struct{}{}
+// calculateSimilarity combines exact token overlap and string distance
+func calculateSimilarity(target, candidate string) float64 {
+	if target == candidate {
+		return 1.0
 	}
-	for _, x := range b {
-		if _, ok := set[x]; ok {
-			return true
+
+	tFields := strings.Fields(target)
+	cFields := strings.Fields(candidate)
+
+	// 1. Check for token intersection
+	matches := 0
+	for _, tf := range tFields {
+		for _, cf := range cFields {
+			if tf == cf {
+				matches++
+			}
 		}
 	}
-	return false
+
+	// Jaccard-ish similarity for tokens
+	tokenScore := float64(matches) / float64(len(tFields)+len(cFields)-matches)
+
+	// 2. Fallback to simple string contains (for partial word matches)
+	if strings.Contains(candidate, target) || strings.Contains(target, candidate) {
+		tokenScore += 0.2
+	}
+
+	return tokenScore
 }
 
 func normalize(s string) string {
 	s = CleanSearchName(s)
 	s = strings.ToLower(s)
 	s = strings.TrimSpace(s)
+
 	return s
 }
 
