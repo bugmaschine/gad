@@ -280,7 +280,7 @@ func handleSeriesDownload(ctx context.Context, args *cli.Args, d *download.Downl
 		Url:           args.Url,
 		SaveDirectory: saveDir,
 		SeriesTitle:   info.Title,
-		// Other fields like language selection could be added to CLI args
+		Language:      args.GetVideoType(),
 	}
 
 	slog.Info("Starting scrape...")

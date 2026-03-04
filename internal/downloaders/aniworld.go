@@ -276,29 +276,69 @@ func (s *Scraper) scrapeSeason(ctx context.Context, season uint32, payload AllOr
 		return err
 	}
 
-	var episodeTexts []string
+	var epEntries []struct {
+		Number string `json:"number"`
+		Flags  []struct {
+			Title string `json:"title"`
+			Src   string `json:"src"`
+		} `json:"flags"`
+	}
+
 	err = chromedp.Run(ctx,
-		chromedp.Evaluate(`Array.from(document.querySelectorAll("li > a[data-episode-id]")).map(a => a.innerText.trim())`, &episodeTexts),
+		chromedp.Evaluate(`
+			Array.from(document.querySelectorAll('table.seasonEpisodesList tbody tr')).map(tr => {
+				const epNumMeta = tr.querySelector('meta[itemprop="episodeNumber"]');
+				const epNum = epNumMeta ? epNumMeta.content : tr.querySelector('td:first-child')?.innerText.trim().match(/\d+/)?.[0];
+				const flags = Array.from(tr.querySelectorAll('td.editFunctions img.flag')).map(img => ({
+					title: img.title || img.alt || "",
+					src: img.getAttribute("src") || ""
+				}));
+				return {number: epNum, flags: flags};
+			})
+		`, &epEntries),
 	)
-	if err != nil {
-		return err
+	if err != nil || len(epEntries) == 0 {
+		slog.Debug("Failed to extract episode entries from table, falling back to basic list", "error", err)
+		// Fallback to basic list if table is missing
+		var episodeTexts []string
+		err = chromedp.Run(ctx,
+			chromedp.Evaluate(`Array.from(document.querySelectorAll("li > a[data-episode-id]")).map(a => a.innerText.trim())`, &episodeTexts),
+		)
+		if err != nil {
+			return err
+		}
+		for _, t := range episodeTexts {
+			if num, err := strconv.ParseUint(t, 10, 32); err == nil {
+				epEntries = append(epEntries, struct {
+					Number string `json:"number"`
+					Flags  []struct {
+						Title string `json:"title"`
+						Src   string `json:"src"`
+					} `json:"flags"`
+				}{Number: strconv.FormatUint(num, 10), Flags: nil})
+			}
+		}
 	}
 
 	var episodes []uint32
-	for _, t := range episodeTexts {
-		num, err := strconv.ParseUint(t, 10, 32)
+	epMap := make(map[uint32][]struct {
+		Title string `json:"title"`
+		Src   string `json:"src"`
+	})
+	for _, entry := range epEntries {
+		num, err := strconv.ParseUint(entry.Number, 10, 32)
 		if err == nil {
-			episodes = append(episodes, uint32(num))
+			ep := uint32(num)
+			episodes = append(episodes, ep)
+			epMap[ep] = entry.Flags
 		}
 	}
 	sort.Slice(episodes, func(i, j int) bool { return episodes[i] < episodes[j] })
 
 	// Find max episode for padding
 	var maxEpisodes uint32
-	for _, ep := range episodes {
-		if ep > maxEpisodes {
-			maxEpisodes = ep
-		}
+	if len(episodes) > 0 {
+		maxEpisodes = episodes[len(episodes)-1]
 	}
 
 	for _, episode := range episodes {
@@ -308,6 +348,25 @@ func (s *Scraper) scrapeSeason(ctx context.Context, season uint32, payload AllOr
 		}
 
 		if s.shouldDownloadEpisode(episode, payload) {
+			// Pre-filter by language if flags are available
+			flags := epMap[episode]
+			if flags != nil && (s.Request.Language.Type != VideoTypeUnspecified || s.Request.Language.Language != LanguageUnspecified) {
+				match := false
+				for _, flag := range flags {
+					vt := parseFlagToVideoType(flag.Title, flag.Src)
+					slog.Debug("Checking flag", "episode", episode, "flagTitle", flag.Title, "flagSrc", flag.Src, "videoType", vt)
+					if (s.Request.Language.Type == VideoTypeUnspecified || s.Request.Language.Type == vt.Type) &&
+						(s.Request.Language.Language == LanguageUnspecified || s.Request.Language.Language == vt.Language) {
+						match = true
+						break
+					}
+				}
+				if !match {
+					slog.Info("Skipping episode because requested language/type is not available", "season", season, "episode", episode, "requested", s.Request.Language)
+					continue
+				}
+			}
+
 			slog.Debug("Queueing episode for scraping", "season", season, "episode", episode)
 			if err := s.scrapeEpisode(ctx, season, episode, maxEpisodes); err != nil {
 				slog.Error("Failed to scrape episode", "season", season, "episode", episode, "error", err)
@@ -317,6 +376,21 @@ func (s *Scraper) scrapeSeason(ctx context.Context, season uint32, payload AllOr
 		}
 	}
 	return nil
+}
+
+func parseFlagToVideoType(title, src string) VideoType {
+	vt := VideoType{Type: VideoTypeDub, Language: LanguageGerman}
+	// On AniWorld, "japanese" in the SVG filename usually means it's a sub (original audio + subtitles)
+	if strings.Contains(title, "Untertitel") || strings.Contains(title, "Subtitles") || strings.Contains(src, "japanese") {
+		vt.Type = VideoTypeSub
+	}
+
+	if strings.Contains(title, "English") || strings.Contains(title, "Englisch") || strings.Contains(src, "english") {
+		vt.Language = LanguageEnglish
+	} else if strings.Contains(title, "Deutsch") || strings.Contains(title, "German") || strings.Contains(src, "german") {
+		vt.Language = LanguageGerman
+	}
+	return vt
 }
 
 func (s *Scraper) shouldDownloadEpisode(episode uint32, payload AllOrSpecific) bool {
@@ -347,42 +421,92 @@ func (s *Scraper) scrapeEpisode(ctx context.Context, season, episode, maxEpisode
 		return fmt.Errorf("failed to load episode page: %w", err)
 	}
 
-	var langInfo struct {
-		Key  string `json:"key"`
-		Type string `json:"type"`
+	var options []struct {
+		Key   string `json:"key"`
+		Type  string `json:"type"`
+		Lang  string `json:"lang"`
+		Title string `json:"title"`
+		Src   string `json:"src"`
 	}
 
 	err = chromedp.Run(ctx,
 		chromedp.Evaluate(`
-			(() => {
-				const imgs = Array.from(document.querySelectorAll('div.changeLanguageBox img'));
-				// Priority: Dub (German without "Untertitel"), then Sub (German with "Untertitel")
-				const sub = imgs.find(img => (img.title || img.alt || "").includes("Untertitel"));
-				const dub = imgs.find(img => (img.title || img.alt || "").includes("Deutsch") && !(img.title || img.alt || "").includes("Untertitel"));
+			Array.from(document.querySelectorAll('div.changeLanguageBox img')).map(img => {
+				const title = img.title || img.alt || "";
+				const src = img.getAttribute("src") || "";
+				let type = "dub";
+				let lang = "de";
 				
-				if (dub) return {key: dub.getAttribute("data-lang-key"), type: "dub"};
-				if (sub) return {key: sub.getAttribute("data-lang-key"), type: "sub"};
-				return null;
-			})()
-		`, &langInfo),
+				if (title.includes("Untertitel") || title.includes("Subtitles") || src.includes("japanese")) {
+					type = "sub";
+				}
+				
+				if (title.includes("English") || title.includes("Englisch") || src.includes("english")) {
+					lang = "en";
+				} else if (title.includes("Deutsch") || title.includes("German") || src.includes("german")) {
+					lang = "de";
+				}
+				
+				return {
+					key: img.getAttribute("data-lang-key"),
+					type: type,
+					lang: lang,
+					title: title,
+					src: src
+				};
+			})
+		`, &options),
 	)
-	if err != nil || langInfo.Key == "" {
-		return fmt.Errorf("failed to find language info")
-	}
-	slog.Debug("Found language info", "key", langInfo.Key, "type", langInfo.Type)
-
-	var videoType VideoType
-	if langInfo.Type == "dub" {
-		videoType = VideoType{Type: VideoTypeDub, Language: LanguageGerman}
-	} else {
-		videoType = VideoType{Type: VideoTypeSub, Language: LanguageGerman}
+	if err != nil {
+		return fmt.Errorf("failed to extract language options: %w", err)
 	}
 
-	if s.Settings.CheckIfExists != nil && s.Settings.CheckIfExists(season, episode, maxEpisodes, &videoType) {
+	var selectedKey string
+	var selectedType VideoType
+	filter := s.Request.Language
+
+	for _, opt := range options {
+		vt := VideoType{}
+		if opt.Type == "dub" {
+			vt.Type = VideoTypeDub
+		} else {
+			vt.Type = VideoTypeSub
+		}
+
+		if opt.Lang == "de" {
+			vt.Language = LanguageGerman
+		} else if opt.Lang == "en" {
+			vt.Language = LanguageEnglish
+		}
+
+		match := true
+		if filter.Type != VideoTypeUnspecified && filter.Type != vt.Type {
+			match = false
+		}
+		if filter.Language != LanguageUnspecified && filter.Language != vt.Language {
+			match = false
+		}
+
+		if match {
+			// Priority: Dub > Sub if no specific type requested
+			if selectedKey == "" || (filter.Type == VideoTypeUnspecified && vt.Type == VideoTypeDub && selectedType.Type == VideoTypeSub) {
+				selectedKey = opt.Key
+				selectedType = vt
+			}
+		}
+	}
+
+	if selectedKey == "" {
+		return fmt.Errorf("no language option matches the requested filter (type: %v, lang: %v). options: %+v", filter.Type, filter.Language, options)
+	}
+
+	slog.Debug("Selected language option", "key", selectedKey, "type", selectedType.Type, "lang", selectedType.Language)
+
+	if s.Settings.CheckIfExists != nil && s.Settings.CheckIfExists(season, episode, maxEpisodes, &selectedType) {
 		slog.Info("Skipping episode because it already exists", "season", season, "episode", episode)
 		return nil
 	}
-	return s.sendStreamToDownloader(ctx, season, episode, maxEpisodes, langInfo.Key, videoType)
+	return s.sendStreamToDownloader(ctx, season, episode, maxEpisodes, selectedKey, selectedType)
 }
 
 func (s *Scraper) sendStreamToDownloader(ctx context.Context, season, episode, maxEpisodes uint32, langKey string, videoType VideoType) error {
