@@ -199,12 +199,13 @@ func handleSeriesDownload(ctx context.Context, args *cli.Args, d *download.Downl
 		// check if similar folder exists, and if it does, choose it.
 		folderName := utils.CleanFolderName(info.Title)
 		similarFolder, err := utils.FindSimilarFolder(saveDir, folderName)
-		slog.Debug("found similar folder", "similarFolder", similarFolder)
+
 		if err != nil {
-			slog.Error("Failed to check for similar folders", "error", err)
-			return err
+			slog.Warn("No similar folder found, will create new one", "folder", folderName, "error", err)
+		} else {
+			slog.Debug("found similar folder", "similarFolder", similarFolder)
 		}
-		slog.Debug("similar folder before check", "folder", similarFolder)
+
 		if similarFolder != "" {
 			slog.Info("Found similar folder, using it", "folder", similarFolder)
 			saveDir = similarFolder
