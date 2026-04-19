@@ -212,6 +212,7 @@ func handleSeriesDownload(ctx context.Context, args *cli.Args, d *download.Downl
 			slog.Info("Saving to", "directory", saveDir)
 		} else {
 			slog.Info("No similar folder found, will create new one", "folder", folderName)
+
 			saveDir = filepath.Join(saveDir, folderName)
 			slog.Info("Saving to", "directory", saveDir)
 

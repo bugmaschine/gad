@@ -39,6 +39,11 @@ func GetDataDir() (string, error) {
 // GetSaveDirectory returns the directory where files should be saved.
 func GetSaveDirectory(customSaveDirectory string) (string, error) {
 	if customSaveDirectory != "" {
+		// create the directory if it doesn't exist
+		err := os.MkdirAll(customSaveDirectory, 0755)
+		if err != nil {
+			return "", fmt.Errorf("failed to create custom save directory: %w", err)
+		}
 		return customSaveDirectory, nil
 	}
 	cwd, err := os.Getwd()
