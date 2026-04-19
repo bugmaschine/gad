@@ -3,13 +3,13 @@ module github.com/bugmaschine/gad
 go 1.26
 
 require (
-	github.com/chromedp/cdproto v0.0.0-20250803210736-d308e07a266d
-	github.com/chromedp/chromedp v0.14.2
-	github.com/fatih/color v1.18.0
+	github.com/chromedp/cdproto v0.0.0-20260405000525-47a8ff65b46a
+	github.com/chromedp/chromedp v0.15.1
+	github.com/fatih/color v1.19.0
 	github.com/grafov/m3u8 v0.12.1
 	github.com/spf13/cobra v1.10.2
 	github.com/vbauerster/mpb/v8 v8.12.0
-	golang.org/x/time v0.14.0
+	golang.org/x/time v0.15.0
 )
 
 require (
@@ -27,5 +27,5 @@ require (
 	github.com/mattn/go-isatty v0.0.20 // indirect
 	github.com/mattn/go-runewidth v0.0.20 // indirect
 	github.com/spf13/pflag v1.0.10 // indirect
-	golang.org/x/sys v0.41.0 // indirect
+	golang.org/x/sys v0.42.0 // indirect
 )
