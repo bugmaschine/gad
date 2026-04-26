@@ -1,19 +1,25 @@
-# Go Aniworld Downloader (gad)
+# Go Anime Downloader (gad)
 
-A CLI tool for downloading anime from Aniworld, rewritten in Go for speed and maintainability. Forked and evolved from [sdl](https://github.com/Funami580/sdl).
+A CLI tool for downloading anime from various websites.
 
 The main changes are the following:
 * Rewritten in Go
-* Queue mode (basically keeps a library up to date)
+* Queue mode (basically keeps a library up to date or waits for episodes to be released in a specific language)
 * Logging to file
 * Some smaller changes
 
-It mostly keeps compatibility with the original sdl, including things like filenames.
+It mostly keeps compatibility with the original [sdl](https://github.com/Funami580/sdl), including things like filenames.
+
+## Pre-built binaries
+Download from [releases](https://github.com/bugmaschine/gad/releases)
 
 ## Supported sites
 ### German
 * [AniWorld](https://aniworld.to)
 * ~~[S.to](https://s.to)~~ — I do not support s.to because I don't use it. The original [sdl](https://github.com/Funami580/sdl) does support it though.
+
+## Planned sites
++ [FireAnime](https://fireani.me)
 
 ## Supported extractors
 * Doodstream
@@ -156,9 +162,6 @@ Currently, Go 1.24 or newer is required.
 go build -o gad ./cmd/gad/main.go
 ```
 The resulting executable is found at `gad`.
-
-## Pre-built binaries
-Download from [releases](https://github.com/bugmaschine/gad/releases)
 
 ## Thanks
 * [aniworld_scraper](https://github.com/wolfswolke/aniworld_scraper) for the inspiration and showing how it could be done

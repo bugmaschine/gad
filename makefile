@@ -1,6 +1,6 @@
 # Fail if no target is provided
 ifeq ($(MAKECMDGOALS),)
-$(error No target specified. Available targets: run_debug, build_linux)
+$(error No target specified. Look into the Makefile for available targets.)
 endif
 
 run_debug:

@@ -33,7 +33,7 @@ func NewAniWorldSerienStream(urlStr string) (*AniWorldSerienStream, error) {
 func (a *AniWorldSerienStream) GetSeriesInfo(ctx context.Context) (*SeriesInfo, error) {
 	var title, description string
 	url := a.ParsedUrl.GetSeriesUrl()
-	slog.Info("Navigating to series page", "url", url)
+	slog.Debug("Navigating to series page", "url", url)
 
 	// Navigate with long timeout for ddos-guard
 	navCtx, cancel := context.WithTimeout(ctx, 45*time.Second)
@@ -48,7 +48,7 @@ func (a *AniWorldSerienStream) GetSeriesInfo(ctx context.Context) (*SeriesInfo, 
 	}
 
 	// Wait for actual content using visible selectors (case-corrected)
-	slog.Info("Extracting series info...")
+	slog.Debug("Extracting series info...")
 	_ = chromedp.Run(ctx,
 		chromedp.Text(`.breadCrumbMenu li.currentActiveLink span[itemprop="name"]`, &title, chromedp.ByQuery),
 		chromedp.AttributeValue(`meta[name="description"]`, "content", &description, nil, chromedp.ByQuery),
@@ -407,7 +407,7 @@ func (s *Scraper) shouldDownloadEpisode(episode uint32, payload AllOrSpecific) b
 
 func (s *Scraper) scrapeEpisode(ctx context.Context, season, episode, maxEpisodes uint32) error {
 	url := s.ParsedUrl.GetEpisodeUrl(season, episode)
-	slog.Info("Navigating to episode page", "url", url)
+	slog.Debug("Navigating to episode page", "url", url)
 
 	// Long timeout for potential challenges
 	eCtx, cancel := context.WithTimeout(ctx, 45*time.Second)
@@ -542,7 +542,7 @@ func (s *Scraper) sendStreamToDownloader(ctx context.Context, season, episode, m
 		absoluteUrl := base.ResolveReference(rel).String()
 
 		slog.Debug("Found stream hoster", "name", stream.Name, "url", absoluteUrl)
-		slog.Info("Trying hoster", "name", stream.Name, "url", absoluteUrl)
+		slog.Debug("Trying hoster", "name", stream.Name, "url", absoluteUrl)
 
 		// Try to extract
 		extracted, err := extractors.ExtractVideoUrlWithExtractor(ctx, absoluteUrl, stream.Name, "", currentUrl)
