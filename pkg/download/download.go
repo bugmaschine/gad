@@ -18,6 +18,7 @@ import (
 	"strings"
 	"sync"
 
+	"github.com/bugmaschine/gad/pkg/logger"
 	"github.com/grafov/m3u8"
 	"github.com/vbauerster/mpb/v8"
 	"github.com/vbauerster/mpb/v8/decor"
@@ -43,6 +44,8 @@ func NewDownloader(userAgent string, debug bool, limitRate float64) *Downloader 
 	}
 
 	p := mpb.New()
+	logger.SetWriter(p)
+
 	return &Downloader{
 		client:    &http.Client{},
 		progress:  p,
@@ -202,6 +205,8 @@ func (d *Downloader) simpleDownload(ctx context.Context, resp *http.Response, ta
 	if err != nil {
 		return err
 	}
+
+	bar.SetCurrent(contentLength) // this should remove the bar
 
 	return nil
 }

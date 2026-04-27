@@ -105,3 +105,9 @@ func InitDefaultLogger(debug bool, logFilePath string) {
 
 	slog.SetDefault(slog.New(handler))
 }
+
+func SetWriter(w io.Writer) {
+	slog.SetDefault(slog.New(NewCustomHandler(w, slog.HandlerOptions{
+		Level: slog.Default().Handler().(*CustomHandler).opts.Level,
+	})))
+}
