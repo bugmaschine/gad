@@ -6,10 +6,14 @@ endif
 run_debug:
 	go run ./cmd/gad/main.go -q ./queue.txt -d
 
-build_ll:
+build:
 	GOOS=linux GOARCH=amd64 go build -o gad-linux-x64 ./cmd/gad/main.go
 	
-build_winl:
+build_windowstolinux:
 	set GOOS=linux&& set GOARCH=amd64&& go build -o gad-linux-x64 ./cmd/gad/main.go
 	copy gad-linux-x64 V:\Anime\gad-linux-x64
 	del gad-linux-x64
+
+build_linuxtolinux:
+	GOOS=linux GOARCH=amd64 go build -o gad-linux-x64 ./cmd/gad/main.go
+	mv gad-linux-x64 ~/media/Anime/gad-linux-x64

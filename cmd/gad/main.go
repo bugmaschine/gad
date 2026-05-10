@@ -21,6 +21,7 @@ import (
 	"github.com/bugmaschine/gad/pkg/ffmpeg"
 	"github.com/bugmaschine/gad/pkg/logger"
 	"github.com/bugmaschine/gad/pkg/utils"
+	"golang.org/x/exp/slices"
 )
 
 func main() {
@@ -90,7 +91,7 @@ func main() {
 	chromeMgr := chrome.NewManager(dataDir, assetDownloader)
 
 	if args.QueueFile != "" {
-		slog.Debug("Queue file specified", "file", args.QueueFile)
+		slog.Info("Queue file specified", "file", args.QueueFile)
 		queueFile, err := os.Open(args.QueueFile)
 		if err != nil {
 			slog.Error("Failed to open queue file", "error", err)
@@ -98,15 +99,15 @@ func main() {
 		}
 		defer queueFile.Close()
 
+		// in this part we sort and filter the urls and add them to the array
+		queueFileUrls := []string{}
 		scanner := bufio.NewScanner(queueFile)
 		for scanner.Scan() {
-			// basically each row is an url, if it has an hashtag, we ignore it.
 			line := strings.Trim(scanner.Text(), "\n")
 			slog.Debug("Processing line from queue", "line", line)
 
-			// check if line is valid
 			if line == "" || strings.HasPrefix(line, "#") {
-				slog.Debug("Skipping invalid line", "line", line)
+				slog.Debug("Skipping invalid or commented line", "line", line)
 				continue
 			}
 
@@ -118,6 +119,20 @@ func main() {
 				slog.Debug("Removed comment from line", "line", line)
 			}
 
+			if slices.Contains(queueFileUrls, line) {
+				slog.Debug("Skipping duplicate URL", "url", line)
+				continue
+			}
+			queueFileUrls = append(queueFileUrls, line)
+			slog.Debug("Added URL from queue", "url", line)
+		}
+		if err := scanner.Err(); err != nil {
+			slog.Error("Error reading queue file", "error", err)
+			os.Exit(1)
+		}
+
+		// at this point we just itterate over the urls and call the handler for each of them, we could optimize this by doing some batching or something, but for simplicity we just do it sequentially.
+		for _, line := range queueFileUrls {
 			// as queue is meant for keeping a library up to date, skip existing is forced to be on.
 			args.SkipExisting = true
 			// For simplicity, we just set the URL and call the handler for each line.
@@ -128,10 +143,6 @@ func main() {
 			if err := handleSeriesDownload(ctx, args, assetDownloader, chromeMgr, saveDir); err != nil {
 				slog.Error("Failed to handle series download from queue", "error", err, "url", args.Url)
 			}
-		}
-		if err := scanner.Err(); err != nil {
-			slog.Error("Error reading queue file", "error", err)
-			os.Exit(1)
 		}
 
 		slog.Info("Finished processing queue file")
@@ -188,7 +199,7 @@ func handleSeriesDownload(ctx context.Context, args *cli.Args, d *download.Downl
 
 	// maybe make this an option, idk.
 	if args.QueueFile != "" {
-		slog.Debug("Queue file there, doing special stuff")
+		slog.Debug("Downloading in Queue file mode")
 
 		// in case we dont have a output base folder yet, we will create one
 		if err := os.MkdirAll(saveDir, 0755); err != nil {

@@ -9,6 +9,7 @@ require (
 	github.com/grafov/m3u8 v0.12.1
 	github.com/spf13/cobra v1.10.2
 	github.com/vbauerster/mpb/v8 v8.12.0
+	golang.org/x/exp v0.0.0-20260508232706-74f9aab9d74a
 	golang.org/x/time v0.15.0
 )
 
