@@ -168,14 +168,16 @@ func (d *Downloader) addTotalSize(n int64) {
 	}
 }
 
+// simpleDownload is meant for things like updating chrome.
 func (d *Downloader) simpleDownload(ctx context.Context, resp *http.Response, targetFile *os.File, message string) error {
 	contentLength := resp.ContentLength
 
-	d.ensureTotalBar()
-	d.addTotalSize(contentLength)
+	//d.ensureTotalBar()
+	//d.addTotalSize(contentLength)
 
 	// generic progress bar
 	bar := d.progress.AddBar(contentLength,
+		mpb.BarRemoveOnComplete(),
 		mpb.PrependDecorators(
 			decor.Name(message+" ", decor.WC{W: len(message) + 1}),
 			decor.CountersKibiByte("% .2f / % .2f"),
@@ -206,7 +208,8 @@ func (d *Downloader) simpleDownload(ctx context.Context, resp *http.Response, ta
 		return err
 	}
 
-	bar.SetCurrent(contentLength) // this should remove the bar
+	bar.SetCurrent(contentLength)
+	bar.SetTotal(contentLength, true) // this should remove the bar
 
 	return nil
 }
