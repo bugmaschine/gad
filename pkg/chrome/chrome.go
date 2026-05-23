@@ -69,14 +69,6 @@ func (m *ChromeManager) Get(ctx context.Context, headless, debug bool) (context.
 		chromedp.NoDefaultBrowserCheck,
 		chromedp.NoFirstRun,
 		chromedp.DisableGPU, // Safer across platforms
-	}
-
-	if headless {
-		// apparently the new headless mode is good??
-		opts = append(opts, chromedp.Flag("headless", "new"))
-	}
-
-	opts = append(opts,
 		//chromedp.Flag("no-sandbox", true), // this is absolutely dangerous. i think sdl did this for performance reasons.
 		chromedp.Flag("disable-dev-shm-usage", true),
 		chromedp.Flag("disable-blink-features", "AutomationControlled"),
@@ -84,7 +76,18 @@ func (m *ChromeManager) Get(ctx context.Context, headless, debug bool) (context.
 		chromedp.WindowSize(1920, 1080),
 		chromedp.Flag("disable-infobars", true),
 		chromedp.Flag("exclude-switches", "enable-automation,enable-logging"),
-	)
+	}
+
+	if headless {
+		// apparently the new headless mode is good??
+		opts = append(opts, chromedp.Flag("headless", "new"))
+	}
+
+	// we should tell the user that running as root isnt the best idea.
+	if os.Getuid() == 0 {
+		slog.Warn("you're running gad as root. this is not recommended for security reasons. the sandbox has been disabled as a result.")
+		opts = append(opts, chromedp.Flag("no-sandbox", true))
+	}
 
 	effectiveUblockDir, err := m.getUblockDirectory(ublockDir)
 	if err == nil {
