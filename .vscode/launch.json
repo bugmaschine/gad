@@ -1,0 +1,19 @@
+{
+  "configurations": [
+    {
+      "type": "go",
+      "request": "launch",
+      "name": "Debug gad (cmd/gad)",
+      "mode": "debug",
+      "program": "${workspaceFolder}/cmd/gad",
+      "args": [
+        "-q",
+        "${workspaceFolder}/queue.txt",
+        "-d",
+        "--browser"
+      ],
+      "cwd": "${workspaceFolder}",
+      "console": "integratedTerminal"
+    }
+  ]
+}
