@@ -82,6 +82,7 @@ func main() {
 	ffmpegPath, err := ff.AutoDownload(ctx, assetDownloader)
 	if err != nil {
 		slog.Error("Failed to manage FFmpeg", "error", err)
+		assetDownloader.Wait()
 		os.Exit(1)
 	}
 	slog.Info("Using FFmpeg at", "path", ffmpegPath)
@@ -95,6 +96,7 @@ func main() {
 		queueFile, err := os.Open(args.QueueFile)
 		if err != nil {
 			slog.Error("Failed to open queue file", "error", err)
+			assetDownloader.Wait()
 			os.Exit(1)
 		}
 		defer queueFile.Close()
@@ -112,9 +114,9 @@ func main() {
 			}
 
 			if strings.Contains(line, "#") {
-				// remove comments at the end exmample: "https://example.com/series/1 # this is a comment" to "https://example.com/series/1 "
+				// remove comments at the end example: "https://example.com/series/1 # this is a comment" to "https://example.com/series/1 "
 				line = strings.Split(line, "#")[0]
-				// remove trailing spaces exmample: "https://example.com/series/1 " to "https://example.com/series/1"
+				// remove trailing spaces example: "https://example.com/series/1 " to "https://example.com/series/1"
 				line = strings.TrimSpace(line)
 				slog.Debug("Removed comment from line", "line", line)
 			}
@@ -128,10 +130,11 @@ func main() {
 		}
 		if err := scanner.Err(); err != nil {
 			slog.Error("Error reading queue file", "error", err)
+			assetDownloader.Wait()
 			os.Exit(1)
 		}
 
-		// at this point we just itterate over the urls and call the handler for each of them, we could optimize this by doing some batching or something, but for simplicity we just do it sequentially.
+		// at this point we just iterate over the urls and call the handler for each of them, we could optimize this by doing some batching or something, but for simplicity we just do it sequentially.
 		for _, line := range queueFileUrls {
 			// as queue is meant for keeping a library up to date, skip existing is forced to be on.
 			args.SkipExisting = true
@@ -146,6 +149,7 @@ func main() {
 		}
 
 		slog.Info("Finished processing queue file")
+		assetDownloader.Wait()
 		os.Exit(0)
 	}
 
@@ -155,6 +159,7 @@ func main() {
 			slog.Debug("Single download", "url", args.Url, "extractor", args.Extractor)
 			if err := handleSingleDownload(ctx, args, assetDownloader, chromeMgr, saveDir); err != nil {
 				slog.Error("Failed to handle single download", "error", err)
+				assetDownloader.Wait()
 				os.Exit(1)
 			}
 			os.Exit(0)
@@ -163,9 +168,11 @@ func main() {
 			if err := handleSeriesDownload(ctx, args, assetDownloader, chromeMgr, saveDir); err != nil {
 				slog.Error("Failed to handle series download", "error", err)
 			}
+			assetDownloader.Wait()
 		}
 	} else {
 		slog.Error("Please specify a URL")
+		assetDownloader.Wait()
 		os.Exit(1)
 	}
 }
