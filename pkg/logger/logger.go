@@ -1,6 +1,7 @@
 package logger
 
 import (
+	"bytes"
 	"context"
 	"fmt"
 	"io"
@@ -30,6 +31,10 @@ var levelColors = map[slog.Level]*color.Color{
 	slog.LevelError: color.New(color.FgRed),
 }
 
+var (
+	logFile io.Writer
+)
+
 // CustomHandler is a custom slog handler for pretty printing.
 type CustomHandler struct {
 	w    io.Writer
@@ -50,6 +55,9 @@ func (h *CustomHandler) Handle(_ context.Context, r slog.Record) error {
 		levelName = r.Level.String()
 	}
 
+	timeStr := r.Time.Format("15:04:05.000")
+
+	// Format console record
 	colorAttr := levelColors[r.Level]
 	var levelStr string
 	if colorAttr != nil {
@@ -58,14 +66,27 @@ func (h *CustomHandler) Handle(_ context.Context, r slog.Record) error {
 		levelStr = levelName
 	}
 
-	timeStr := r.Time.Format("15:04:05.000")
-
-	fmt.Fprintf(h.w, "%s %s > %s", timeStr, levelStr, r.Message)
+	var buf bytes.Buffer
+	fmt.Fprintf(&buf, "%s %s > %s", timeStr, levelStr, r.Message)
 	r.Attrs(func(a slog.Attr) bool {
-		fmt.Fprintf(h.w, " %s=%v", a.Key, a.Value)
+		fmt.Fprintf(&buf, " %s=%v", a.Key, a.Value)
 		return true
 	})
-	fmt.Fprintln(h.w)
+	buf.WriteByte('\n')
+
+	h.w.Write(buf.Bytes())
+
+	if logFile != nil {
+		var fileBuf bytes.Buffer
+		fmt.Fprintf(&fileBuf, "%s %s > %s", timeStr, levelName, r.Message)
+		r.Attrs(func(a slog.Attr) bool {
+			fmt.Fprintf(&fileBuf, " %s=%v", a.Key, a.Value)
+			return true
+		})
+		fileBuf.WriteByte('\n')
+		logFile.Write(fileBuf.Bytes())
+	}
+
 	return nil
 }
 
@@ -95,7 +116,7 @@ func InitDefaultLogger(debug bool, logFilePath string) {
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "failed to open log file: %v\n", err)
 		} else {
-			writer = io.MultiWriter(os.Stderr, f)
+			logFile = f
 		}
 	}
 
