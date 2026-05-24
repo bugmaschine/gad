@@ -245,6 +245,7 @@ func (s *Scraper) scrapeSeasons(ctx context.Context, payload AllOrSpecific) erro
 	for _, season := range seasons {
 		if s.shouldDownloadSeason(season, payload) {
 			slog.Debug("Queueing season for scraping", "season", season)
+
 			if err := s.scrapeSeason(ctx, season, AllOrSpecific{All: true}); err != nil {
 				slog.Error("Failed to scrape season", "season", season, "error", err)
 			}
@@ -340,8 +341,9 @@ func (s *Scraper) scrapeSeason(ctx context.Context, season uint32, payload AllOr
 	if len(episodes) > 0 {
 		maxEpisodes = episodes[len(episodes)-1]
 	}
-
+	slog.Debug("Found episodes", "raw", epEntries, "parsed", episodes, "maxEpisodes", maxEpisodes)
 	for _, episode := range episodes {
+		slog.Debug("Processing episode", "season", season, "episode", episode)
 		if s.Settings.CheckIfExists != nil && s.Settings.CheckIfExists(season, episode, maxEpisodes, nil) {
 			slog.Info("Skipping episode because it already exists", "season", season, "episode", episode)
 			continue

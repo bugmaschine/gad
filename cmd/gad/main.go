@@ -82,7 +82,7 @@ func main() {
 	ffmpegPath, err := ff.AutoDownload(ctx, assetDownloader)
 	if err != nil {
 		slog.Error("Failed to manage FFmpeg", "error", err)
-		assetDownloader.Wait()
+		assetDownloader.Shutdown()
 		os.Exit(1)
 	}
 	slog.Info("Using FFmpeg at", "path", ffmpegPath)
@@ -96,7 +96,7 @@ func main() {
 		queueFile, err := os.Open(args.QueueFile)
 		if err != nil {
 			slog.Error("Failed to open queue file", "error", err)
-			assetDownloader.Wait()
+			assetDownloader.Shutdown()
 			os.Exit(1)
 		}
 		defer queueFile.Close()
@@ -130,9 +130,18 @@ func main() {
 		}
 		if err := scanner.Err(); err != nil {
 			slog.Error("Error reading queue file", "error", err)
-			assetDownloader.Wait()
+			assetDownloader.Shutdown()
 			os.Exit(1)
 		}
+
+		// Browser session for scraping
+		scrapeCtx, cancel, err := chromeMgr.Get(ctx, !args.Browser, args.Debug)
+		if err != nil {
+			slog.Error("Failed to start browser", "error", err)
+			assetDownloader.Shutdown()
+			os.Exit(1)
+		}
+		defer cancel()
 
 		// at this point we just iterate over the urls and call the handler for each of them, we could optimize this by doing some batching or something, but for simplicity we just do it sequentially.
 		for _, line := range queueFileUrls {
@@ -141,43 +150,52 @@ func main() {
 			// For simplicity, we just set the URL and call the handler for each line.
 			args.Url = line
 			slog.Info("Processing URL from queue", "url", args.Url)
-			// I know that this could be better, but realistically people are only going to use queue with a whole series.
-			// and the download bar might not show all downloads, but who cares? i mean, i'll just have a cron job run it
-			if err := handleSeriesDownload(ctx, args, assetDownloader, chromeMgr, saveDir); err != nil {
+
+			if err := handleSeriesDownload(ctx, args, assetDownloader, chromeMgr, saveDir, scrapeCtx); err != nil {
 				slog.Error("Failed to handle series download from queue", "error", err, "url", args.Url)
 			}
 		}
 
 		slog.Info("Finished processing queue file")
-		assetDownloader.Wait()
+		assetDownloader.Shutdown()
 		os.Exit(0)
 	}
 
 	// Main work
 	if args.Url != "" {
+		// Browser session for scraping
+		scrapeCtx, cancel, err := chromeMgr.Get(ctx, !args.Browser, args.Debug)
+		if err != nil {
+			slog.Error("Failed to start browser", "error", err)
+			assetDownloader.Shutdown()
+			os.Exit(1)
+		}
+		defer cancel()
 		if args.Extractor != "" {
 			slog.Debug("Single download", "url", args.Url, "extractor", args.Extractor)
+
 			if err := handleSingleDownload(ctx, args, assetDownloader, chromeMgr, saveDir); err != nil {
 				slog.Error("Failed to handle single download", "error", err)
-				assetDownloader.Wait()
+				assetDownloader.Shutdown()
 				os.Exit(1)
 			}
 			os.Exit(0)
 		} else {
+
 			slog.Debug("Series download", "url", args.Url)
-			if err := handleSeriesDownload(ctx, args, assetDownloader, chromeMgr, saveDir); err != nil {
+			if err := handleSeriesDownload(ctx, args, assetDownloader, chromeMgr, saveDir, scrapeCtx); err != nil {
 				slog.Error("Failed to handle series download", "error", err)
 			}
-			assetDownloader.Wait()
+			assetDownloader.Shutdown()
 		}
 	} else {
 		slog.Error("Please specify a URL")
-		assetDownloader.Wait()
+		assetDownloader.Shutdown()
 		os.Exit(1)
 	}
 }
 
-func handleSeriesDownload(ctx context.Context, args *cli.Args, d *download.Downloader, cm *chrome.ChromeManager, saveDir string) (err error) {
+func handleSeriesDownload(ctx context.Context, args *cli.Args, d *download.Downloader, cm *chrome.ChromeManager, saveDir string, scrapeCtx context.Context) (err error) {
 	dl, err := downloaders.GetDownloader(args.Url)
 	if err != nil {
 		slog.Error("Failed to get downloader", "error", err)
@@ -187,14 +205,6 @@ func handleSeriesDownload(ctx context.Context, args *cli.Args, d *download.Downl
 		slog.Error("No downloader supports this URL. Maybe use -e to specify an extractor for a single file?")
 		return fmt.Errorf("no downloader supports this URL")
 	}
-
-	// Browser session for scraping
-	scrapeCtx, cancel, err := cm.Get(ctx, !args.Browser, args.Debug)
-	if err != nil {
-		slog.Error("Failed to start browser", "error", err)
-		return err
-	}
-	defer cancel()
 
 	slog.Info("Fetching series info...")
 	info, err := dl.GetSeriesInfo(scrapeCtx)

@@ -43,7 +43,8 @@ func NewDownloader(userAgent string, debug bool, limitRate float64) *Downloader 
 		rLimit = rate.NewLimiter(rate.Limit(limitRate), int(limitRate))
 	}
 
-	p := mpb.New()
+	// this is some black magic
+	p := mpb.New(mpb.WithOutput(os.Stdout))
 	logger.SetWriter(p)
 
 	return &Downloader{
@@ -462,6 +463,10 @@ func (tw totalWriter) Write(p []byte) (int, error) {
 
 func (d *Downloader) Wait() {
 	d.progress.Wait()
+}
+
+func (d *Downloader) Shutdown() {
+	d.progress.Shutdown()
 }
 
 type rateLimitedReader struct {
