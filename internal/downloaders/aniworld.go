@@ -49,7 +49,7 @@ func (a *AniWorldSerienStream) GetSeriesInfo(ctx context.Context) (*SeriesInfo, 
 
 	// Wait for actual content using visible selectors (case-corrected)
 	slog.Debug("Extracting series info...")
-	_ = chromedp.Run(ctx,
+	_ = chromedp.Run(navCtx,
 		chromedp.Text(`.breadCrumbMenu li.currentActiveLink span[itemprop="name"]`, &title, chromedp.ByQuery),
 		chromedp.AttributeValue(`meta[name="description"]`, "content", &description, nil, chromedp.ByQuery),
 	)
@@ -57,7 +57,7 @@ func (a *AniWorldSerienStream) GetSeriesInfo(ctx context.Context) (*SeriesInfo, 
 	// Fallback to hidden elements if needed
 	if title == "" {
 		slog.Debug("Visible title not found, trying hidden elements...")
-		_ = chromedp.Run(ctx,
+		_ = chromedp.Run(navCtx,
 			chromedp.Text(`.series-title h1 span`, &title, chromedp.ByQuery),
 			chromedp.AttributeValue(`p.seri_des`, "data-full-description", &description, nil, chromedp.ByQuery),
 		)
