@@ -144,6 +144,7 @@ func main() {
 		defer cancel()
 
 		// at this point we just iterate over the urls and call the handler for each of them, we could optimize this by doing some batching or something, but for simplicity we just do it sequentially.
+		hadQueueError := false
 		for _, line := range queueFileUrls {
 			// as queue is meant for keeping a library up to date, skip existing is forced to be on.
 			args.SkipExisting = true
@@ -152,13 +153,18 @@ func main() {
 			slog.Info("Processing URL from queue", "url", args.Url)
 
 			if err := handleSeriesDownload(ctx, args, assetDownloader, chromeMgr, saveDir, scrapeCtx); err != nil {
+				hadQueueError = true
 				slog.Error("Failed to handle series download from queue", "error", err, "url", args.Url)
 			}
 		}
 
 		slog.Info("Finished processing queue file")
-		assetDownloader.Shutdown()
-		os.Exit(0)
+		if hadQueueError {
+			assetDownloader.Shutdown()
+			os.Exit(1)
+		}
+		assetDownloader.Close()
+		return
 	}
 
 	// Main work
@@ -179,14 +185,17 @@ func main() {
 				assetDownloader.Shutdown()
 				os.Exit(1)
 			}
-			os.Exit(0)
+			assetDownloader.Close()
+			return
 		} else {
 
 			slog.Debug("Series download", "url", args.Url)
 			if err := handleSeriesDownload(ctx, args, assetDownloader, chromeMgr, saveDir, scrapeCtx); err != nil {
 				slog.Error("Failed to handle series download", "error", err)
+				assetDownloader.Shutdown()
+				os.Exit(1)
 			}
-			assetDownloader.Shutdown()
+			assetDownloader.Close()
 		}
 	} else {
 		slog.Error("Please specify a URL")
@@ -352,6 +361,5 @@ func handleSingleDownload(ctx context.Context, args *cli.Args, d *download.Downl
 		return err
 	}
 
-	d.Wait()
 	return nil
 }

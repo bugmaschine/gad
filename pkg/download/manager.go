@@ -32,7 +32,7 @@ func NewDownloadManager(d *Downloader, maxConcurrent int, saveDir string, info d
 	}
 	return &DownloadManager{
 		downloader:    d,
-		tasks:         make(chan ManagerTask, 100),
+		tasks:         make(chan ManagerTask, 10000000),
 		maxConcurrent: maxConcurrent,
 		saveDir:       saveDir,
 		seriesInfo:    info,
@@ -59,16 +59,21 @@ func (m *DownloadManager) ProgressDownloads(ctx context.Context) error {
 	for task := range m.tasks {
 		slog.Debug("Download manager received task", "url", task.DownloadUrl, "ep", task.EpisodeInfo)
 		wg.Add(1)
+
 		go func(t ManagerTask) {
 			defer wg.Done()
-			sem <- struct{}{}
+
+			select {
+			case sem <- struct{}{}:
+			case <-ctx.Done():
+				return
+			}
 			defer func() { <-sem }()
 
 			outputName := GetEpisodeName(seriesName, &t.VideoType, &t.EpisodeInfo, false)
 
 			if m.skipExisting && cache != nil && cache.CheckIfEpisodeExists(outputName) {
 				slog.Info("skipping download for file: already exists", "file", outputName)
-				slog.Debug("File exists check passed", "file", outputName)
 				return
 			}
 
@@ -76,9 +81,10 @@ func (m *DownloadManager) ProgressDownloads(ctx context.Context) error {
 				SetSkipExisting(m.skipExisting).
 				SetReferer(t.Referer)
 
-			if err := m.downloader.DownloadToFile(ctx, dt); err != nil {
-				slog.Warn("Failed download", "file", outputName, "error", err)
+			err := m.downloader.DownloadToFile(ctx, dt)
 
+			if err != nil {
+				slog.Warn("Failed download", "file", outputName, "error", err)
 				select {
 				case errChan <- err:
 				default:
@@ -97,5 +103,4 @@ func (m *DownloadManager) ProgressDownloads(ctx context.Context) error {
 	default:
 		return nil
 	}
-
 }

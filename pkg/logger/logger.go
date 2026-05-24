@@ -7,6 +7,7 @@ import (
 	"io"
 	"log/slog"
 	"os"
+	"sync"
 
 	"github.com/fatih/color"
 )
@@ -39,10 +40,11 @@ var (
 type CustomHandler struct {
 	w    io.Writer
 	opts slog.HandlerOptions
+	mu   *sync.Mutex
 }
 
 func NewCustomHandler(w io.Writer, opts slog.HandlerOptions) *CustomHandler {
-	return &CustomHandler{w: w, opts: opts}
+	return &CustomHandler{w: w, opts: opts, mu: &sync.Mutex{}}
 }
 
 func (h *CustomHandler) Enabled(_ context.Context, level slog.Level) bool {
@@ -50,6 +52,9 @@ func (h *CustomHandler) Enabled(_ context.Context, level slog.Level) bool {
 }
 
 func (h *CustomHandler) Handle(_ context.Context, r slog.Record) error {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+
 	levelName := levelNames[r.Level]
 	if levelName == "" {
 		levelName = r.Level.String()
@@ -57,7 +62,6 @@ func (h *CustomHandler) Handle(_ context.Context, r slog.Record) error {
 
 	timeStr := r.Time.Format("15:04:05.000")
 
-	// Format console record
 	colorAttr := levelColors[r.Level]
 	var levelStr string
 	if colorAttr != nil {
@@ -76,6 +80,12 @@ func (h *CustomHandler) Handle(_ context.Context, r slog.Record) error {
 
 	h.w.Write(buf.Bytes())
 
+	if flusher, ok := h.w.(interface{ Flush() }); ok {
+		flusher.Flush()
+	} else if syncer, ok := h.w.(interface{ Sync() error }); ok {
+		_ = syncer.Sync()
+	}
+
 	if logFile != nil {
 		var fileBuf bytes.Buffer
 		fmt.Fprintf(&fileBuf, "%s %s > %s", timeStr, levelName, r.Message)
@@ -85,6 +95,9 @@ func (h *CustomHandler) Handle(_ context.Context, r slog.Record) error {
 		})
 		fileBuf.WriteByte('\n')
 		logFile.Write(fileBuf.Bytes())
+		if f, ok := logFile.(*os.File); ok {
+			_ = f.Sync()
+		}
 	}
 
 	return nil
@@ -128,7 +141,16 @@ func InitDefaultLogger(debug bool, logFilePath string) {
 }
 
 func SetWriter(w io.Writer) {
+	currentLevel := slog.LevelInfo
+	if defaultHandler, ok := slog.Default().Handler().(*CustomHandler); ok {
+		currentLevel = defaultHandler.opts.Level.Level()
+	}
+
 	slog.SetDefault(slog.New(NewCustomHandler(w, slog.HandlerOptions{
-		Level: slog.Default().Handler().(*CustomHandler).opts.Level,
+		Level: currentLevel,
 	})))
+}
+
+func ResetWriter() {
+	SetWriter(os.Stderr)
 }

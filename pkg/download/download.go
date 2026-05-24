@@ -35,6 +35,7 @@ type Downloader struct {
 	ffmpegPath string
 	debug      bool
 	mu         sync.Mutex
+	finishOnce sync.Once
 }
 
 func NewDownloader(userAgent string, debug bool, limitRate float64) *Downloader {
@@ -45,7 +46,6 @@ func NewDownloader(userAgent string, debug bool, limitRate float64) *Downloader 
 
 	// this is some black magic
 	p := mpb.New(mpb.WithOutput(os.Stdout))
-	logger.SetWriter(p)
 
 	return &Downloader{
 		client:    &http.Client{},
@@ -155,6 +155,8 @@ func (d *Downloader) downloadInfo() mpb.BarOption {
 }
 
 func (d *Downloader) addTotalPos(n int64) {
+	d.mu.Lock()
+	defer d.mu.Unlock()
 	if d.totalBar != nil {
 		d.totalBar.IncrBy(int(n))
 	}
@@ -166,6 +168,14 @@ func (d *Downloader) addTotalSize(n int64) {
 	d.totalSize += n
 	if d.totalBar != nil {
 		d.totalBar.SetTotal(d.totalSize, false)
+	}
+}
+
+func (d *Downloader) completeTotalBar() {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	if d.totalBar != nil {
+		d.totalBar.SetTotal(d.totalSize, true)
 	}
 }
 
@@ -431,6 +441,7 @@ func (d *Downloader) m3u8Download(ctx context.Context, resp *http.Response, refe
 
 	bar.SetTotal(downloadedBytes, true)
 	bar.SetCurrent(downloadedBytes)
+	d.addTotalSize(downloadedBytes - lastEstimation)
 
 	targetFile.Close()
 
@@ -462,11 +473,22 @@ func (tw totalWriter) Write(p []byte) (int, error) {
 }
 
 func (d *Downloader) Wait() {
-	d.progress.Wait()
+	d.Close()
+}
+
+func (d *Downloader) Close() {
+	d.finishOnce.Do(func() {
+		d.completeTotalBar()
+		d.progress.Wait()
+		logger.ResetWriter()
+	})
 }
 
 func (d *Downloader) Shutdown() {
-	d.progress.Shutdown()
+	d.finishOnce.Do(func() {
+		d.progress.Shutdown()
+		logger.ResetWriter()
+	})
 }
 
 type rateLimitedReader struct {
