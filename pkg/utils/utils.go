@@ -5,6 +5,7 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"runtime"
 	"strings"
 )
 
@@ -134,4 +135,16 @@ func CleanSearchName(rawName string) string {
 	name = multiSpace.ReplaceAllString(name, " ")
 
 	return name
+}
+
+// Code copied from https://gist.github.com/jerblack/d0eb182cc5a1c1d92d92a4c4fcc416c6
+func IsExecutedAsAdmin() bool {
+	if runtime.GOOS != "windows" {
+		return os.Geteuid() == 0 // should also apply to macos, i think.
+	}
+	_, err := os.Open("\\\\.\\PHYSICALDRIVE0")
+	if err != nil {
+		return false
+	}
+	return true
 }

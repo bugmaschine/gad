@@ -130,8 +130,11 @@ type Downloader interface {
 }
 
 type DownloadTaskWrapper struct {
-	Episode EpisodeInfo
-	Lang    VideoType
-	Url     string
-	Referer string
+	Episode            EpisodeInfo
+	Lang               VideoType
+	Url                string
+	Referer            string
+	UserAgent          string
+	OnDownloadStart    func(context.Context) (func(), error)
+	OnDownloadComplete func(context.Context) error
 }

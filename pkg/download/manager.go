@@ -2,19 +2,24 @@ package download
 
 import (
 	"context"
+	"errors"
+	"fmt"
 	"log/slog"
 	"path/filepath"
 	"sync"
 
-	"github.com/bugmaschine/gad/internal/downloaders"
+	"bugmaschine/gad/internal/downloaders"
 )
 
 type ManagerTask struct {
-	DownloadUrl string
-	Referer     string
-	Language    downloaders.Language
-	VideoType   downloaders.VideoType
-	EpisodeInfo downloaders.EpisodeInfo
+	DownloadUrl        string
+	Referer            string
+	UserAgent          string
+	Language           downloaders.Language
+	VideoType          downloaders.VideoType
+	EpisodeInfo        downloaders.EpisodeInfo
+	OnDownloadStart    func(context.Context) (func(), error)
+	OnDownloadComplete func(context.Context) error
 }
 
 type DownloadManager struct {
@@ -26,13 +31,15 @@ type DownloadManager struct {
 	skipExisting  bool
 }
 
+const managerTaskBuffer = 100
+
 func NewDownloadManager(d *Downloader, maxConcurrent int, saveDir string, info downloaders.SeriesInfo, skip bool) *DownloadManager {
 	if maxConcurrent <= 0 {
 		maxConcurrent = 1
 	}
 	return &DownloadManager{
 		downloader:    d,
-		tasks:         make(chan ManagerTask, 10000000),
+		tasks:         make(chan ManagerTask, managerTaskBuffer),
 		maxConcurrent: maxConcurrent,
 		saveDir:       saveDir,
 		seriesInfo:    info,
@@ -40,8 +47,19 @@ func NewDownloadManager(d *Downloader, maxConcurrent int, saveDir string, info d
 	}
 }
 
-func (m *DownloadManager) Submit(task ManagerTask) {
-	m.tasks <- task
+func (m *DownloadManager) Submit(ctx context.Context, task ManagerTask) error {
+	select {
+	case <-ctx.Done():
+		return ctx.Err()
+	default:
+	}
+
+	select {
+	case m.tasks <- task:
+		return nil
+	case <-ctx.Done():
+		return ctx.Err()
+	}
 }
 
 func (m *DownloadManager) Close() {
@@ -53,46 +71,21 @@ func (m *DownloadManager) ProgressDownloads(ctx context.Context) error {
 	cache, _ := NewDirectoryCache(m.saveDir)
 
 	var wg sync.WaitGroup
-	sem := make(chan struct{}, m.maxConcurrent)
 	errChan := make(chan error, 1)
 
-	for task := range m.tasks {
-		slog.Debug("Download manager received task", "url", task.DownloadUrl, "ep", task.EpisodeInfo)
+	for i := 0; i < m.maxConcurrent; i++ {
 		wg.Add(1)
-
-		go func(t ManagerTask) {
+		go func() {
 			defer wg.Done()
-
-			select {
-			case sem <- struct{}{}:
-			case <-ctx.Done():
-				return
-			}
-			defer func() { <-sem }()
-
-			outputName := GetEpisodeName(seriesName, &t.VideoType, &t.EpisodeInfo, false)
-
-			if m.skipExisting && cache != nil && cache.CheckIfEpisodeExists(outputName) {
-				slog.Info("skipping download for file: already exists", "file", outputName)
-				return
-			}
-
-			dt := NewDownloadTask(filepath.Join(m.saveDir, outputName), t.DownloadUrl).
-				SetSkipExisting(m.skipExisting).
-				SetReferer(t.Referer)
-
-			err := m.downloader.DownloadToFile(ctx, dt)
-
-			if err != nil {
-				slog.Warn("Failed download", "file", outputName, "error", err)
-				select {
-				case errChan <- err:
-				default:
+			for task := range m.tasks {
+				if err := m.downloadTask(ctx, seriesName, cache, task); err != nil {
+					select {
+					case errChan <- err:
+					default:
+					}
 				}
-			} else {
-				slog.Debug("Download finished successfully", "file", outputName)
 			}
-		}(task)
+		}()
 	}
 
 	wg.Wait()
@@ -101,6 +94,40 @@ func (m *DownloadManager) ProgressDownloads(ctx context.Context) error {
 	case err := <-errChan:
 		return err
 	default:
+		return ctx.Err()
+	}
+}
+
+func (m *DownloadManager) downloadTask(ctx context.Context, seriesName string, cache *DirectoryCache, task ManagerTask) error {
+	slog.Debug("Download manager received task", "url", task.DownloadUrl, "ep", task.EpisodeInfo)
+
+	outputName := GetEpisodeName(seriesName, &task.VideoType, &task.EpisodeInfo, false)
+	if m.skipExisting && cache != nil && cache.CheckIfEpisodeExists(outputName) {
+		slog.Info("skipping download for file: already exists", "file", outputName)
 		return nil
 	}
+
+	dt := NewDownloadTask(filepath.Join(m.saveDir, outputName), task.DownloadUrl).
+		SetSkipExisting(m.skipExisting).
+		SetReferer(task.Referer).
+		SetUserAgent(task.UserAgent).
+		SetOnStart(task.OnDownloadStart).
+		SetOnComplete(task.OnDownloadComplete)
+
+	if err := m.downloader.DownloadToFile(ctx, dt); err != nil {
+		if isContextError(ctx, err) {
+			return err
+		}
+		slog.Warn("Failed download", "file", outputName, "error", err)
+		return fmt.Errorf("%s: %w", outputName, err)
+	}
+
+	slog.Debug("Download finished successfully", "file", outputName)
+	return nil
+}
+
+func isContextError(ctx context.Context, err error) bool {
+	return ctx.Err() != nil ||
+		errors.Is(err, context.Canceled) ||
+		errors.Is(err, context.DeadlineExceeded)
 }

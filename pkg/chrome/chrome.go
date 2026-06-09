@@ -15,7 +15,9 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/bugmaschine/gad/pkg/download"
+	"bugmaschine/gad/pkg/download"
+	"bugmaschine/gad/pkg/utils"
+
 	"github.com/chromedp/cdproto/page"
 	"github.com/chromedp/chromedp"
 )
@@ -72,10 +74,13 @@ func (m *ChromeManager) Get(ctx context.Context, headless, debug bool) (context.
 		//chromedp.Flag("no-sandbox", true), // this is absolutely dangerous. i think sdl did this for performance reasons.
 		chromedp.Flag("disable-dev-shm-usage", true),
 		chromedp.Flag("disable-blink-features", "AutomationControlled"),
-		chromedp.UserAgent("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/121.0.0.0 Safari/537.36"),
+		chromedp.UserAgent("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/148.0.0.0 Safari/537.36"),
 		chromedp.WindowSize(1920, 1080),
 		chromedp.Flag("disable-infobars", true),
 		chromedp.Flag("exclude-switches", "enable-automation,enable-logging"),
+		//chromedp.Flag("use-angle", "swiftshader"),
+		//chromedp.Flag("use-gl", "angle"),
+		//chromedp.Flag("in-process-gpu", true),
 	}
 
 	if headless {
@@ -83,8 +88,8 @@ func (m *ChromeManager) Get(ctx context.Context, headless, debug bool) (context.
 		opts = append(opts, chromedp.Flag("headless", "new"))
 	}
 
-	// we should tell the user that running as root isnt the best idea.
-	if os.Getuid() == 0 {
+	// we should tell the user that running as root isnt the best idea. Is there any way to check for the windows admin user?
+	if utils.IsExecutedAsAdmin() {
 		slog.Warn("you're running gad as root. this is not recommended for security reasons. the sandbox has been disabled as a result.")
 		opts = append(opts, chromedp.Flag("no-sandbox", true))
 	}

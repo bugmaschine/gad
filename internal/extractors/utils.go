@@ -9,6 +9,9 @@ import (
 	"regexp"
 	"strconv"
 	"strings"
+
+	"github.com/chromedp/cdproto/page"
+	"github.com/chromedp/chromedp"
 )
 
 func IsUrlHostAndHasPath(rawUrl string, expectedHost string, mustHavePath bool, ignoreCase bool) bool {
@@ -35,13 +38,38 @@ func IsUrlHostAndHasPath(rawUrl string, expectedHost string, mustHavePath bool, 
 }
 
 func GetSource(ctx context.Context, from ExtractFrom) (string, error) {
+	source, _, err := GetSourceWithFinalURL(ctx, from)
+	return source, err
+}
+
+func dumpMHTML(ctx context.Context) (string, error) {
+	var data string
+
+	err := chromedp.Run(ctx,
+		chromedp.ActionFunc(func(ctx context.Context) error {
+			var err error
+			data, err = page.CaptureSnapshot().
+				WithFormat(page.CaptureSnapshotFormatMhtml).
+				Do(ctx)
+			return err
+		}),
+	)
+
+	if err != nil {
+		return "", err
+	}
+
+	return data, nil
+}
+
+func GetSourceWithFinalURL(ctx context.Context, from ExtractFrom) (string, string, error) {
 	if from.Source != "" {
-		return from.Source, nil
+		return from.Source, from.Url, nil
 	}
 
 	req, err := http.NewRequestWithContext(ctx, "GET", from.Url, nil)
 	if err != nil {
-		return "", err
+		return "", "", err
 	}
 
 	if from.UserAgent != "" {
@@ -53,20 +81,20 @@ func GetSource(ctx context.Context, from ExtractFrom) (string, error) {
 
 	resp, err := http.DefaultClient.Do(req)
 	if err != nil {
-		return "", err
+		return "", "", err
 	}
 	defer resp.Body.Close()
 
 	if resp.StatusCode != http.StatusOK {
-		return "", fmt.Errorf("failed to fetch source: status %d", resp.StatusCode)
+		return "", "", fmt.Errorf("failed to fetch source: status %d", resp.StatusCode)
 	}
 
 	body, err := io.ReadAll(resp.Body)
 	if err != nil {
-		return "", err
+		return "", "", err
 	}
 
-	return string(body), nil
+	return string(body), resp.Request.URL.String(), nil
 }
 
 func DecodePackedCodes(code string) (string, bool) {

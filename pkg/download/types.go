@@ -1,6 +1,7 @@
 package download
 
 import (
+	"context"
 	"path/filepath"
 )
 
@@ -12,6 +13,9 @@ type DownloadTask struct {
 	SkipExisting           bool
 	CustomMessage          string
 	Referer                string
+	UserAgent              string
+	OnStart                func(context.Context) (func(), error)
+	OnComplete             func(context.Context) error
 }
 
 func NewDownloadTask(outputPath, url string) *DownloadTask {
@@ -38,6 +42,21 @@ func (t *DownloadTask) SetCustomMessage(message string) *DownloadTask {
 
 func (t *DownloadTask) SetReferer(referer string) *DownloadTask {
 	t.Referer = referer
+	return t
+}
+
+func (t *DownloadTask) SetUserAgent(userAgent string) *DownloadTask {
+	t.UserAgent = userAgent
+	return t
+}
+
+func (t *DownloadTask) SetOnStart(onStart func(context.Context) (func(), error)) *DownloadTask {
+	t.OnStart = onStart
+	return t
+}
+
+func (t *DownloadTask) SetOnComplete(onComplete func(context.Context) error) *DownloadTask {
+	t.OnComplete = onComplete
 	return t
 }
 

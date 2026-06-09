@@ -7,7 +7,8 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/bugmaschine/gad/internal/downloaders"
+	"bugmaschine/gad/internal/downloaders"
+
 	"github.com/spf13/cobra"
 )
 

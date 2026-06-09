@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
+	"net/http"
 	"net/url"
 	"regexp"
 	"sort"
@@ -11,7 +12,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/bugmaschine/gad/internal/extractors"
+	"bugmaschine/gad/internal/extractors"
+
 	"github.com/chromedp/cdproto/cdp"
 	"github.com/chromedp/chromedp"
 )
@@ -31,7 +33,6 @@ func NewAniWorldSerienStream(urlStr string) (*AniWorldSerienStream, error) {
 }
 
 func (a *AniWorldSerienStream) GetSeriesInfo(ctx context.Context) (*SeriesInfo, error) {
-	var title, description string
 	url := a.ParsedUrl.GetSeriesUrl()
 	slog.Debug("Navigating to series page", "url", url)
 
@@ -39,38 +40,48 @@ func (a *AniWorldSerienStream) GetSeriesInfo(ctx context.Context) (*SeriesInfo, 
 	navCtx, cancel := context.WithTimeout(ctx, 45*time.Second)
 	defer cancel()
 
-	err := chromedp.Run(navCtx,
+	navErr := chromedp.Run(navCtx,
 		chromedp.Navigate(url),
 		chromedp.WaitVisible(`body`, chromedp.ByQuery),
 	)
-	if err != nil {
-		slog.Warn("Initial navigation failed or timed out", "error", err)
+	if navErr != nil {
+		slog.Warn("Initial navigation failed or timed out", "error", navErr)
 	}
 
-	// Wait for actual content using visible selectors (case-corrected)
+	var pageInfo struct {
+		Title       string `json:"title"`
+		Description string `json:"description"`
+	}
+
+	// Extract optional selectors without waiting. Error pages do not contain the
+	// normal title nodes, and waiting for them makes invalid links look hung.
 	slog.Debug("Extracting series info...")
-	_ = chromedp.Run(navCtx,
-		chromedp.Text(`.breadCrumbMenu li.currentActiveLink span[itemprop="name"]`, &title, chromedp.ByQuery),
-		chromedp.AttributeValue(`meta[name="description"]`, "content", &description, nil, chromedp.ByQuery),
-	)
+	extractErr := chromedp.Run(navCtx,
+		chromedp.Evaluate(`(() => {
+			const text = selector => document.querySelector(selector)?.textContent?.trim() || "";
+			const attr = (selector, name) => document.querySelector(selector)?.getAttribute(name)?.trim() || "";
 
-	// Fallback to hidden elements if needed
-	if title == "" {
-		slog.Debug("Visible title not found, trying hidden elements...")
-		_ = chromedp.Run(navCtx,
-			chromedp.Text(`.series-title h1 span`, &title, chromedp.ByQuery),
-			chromedp.AttributeValue(`p.seri_des`, "data-full-description", &description, nil, chromedp.ByQuery),
-		)
+			return {
+				title: text('.breadCrumbMenu li.currentActiveLink span[itemprop="name"]') || text('.series-title h1 span'),
+				description: attr('meta[name="description"]', 'content') || attr('p.seri_des', 'data-full-description')
+			};
+		})()`, &pageInfo),
+	)
+	if extractErr != nil {
+		return nil, fmt.Errorf("failed to extract series info: %w", extractErr)
 	}
 
+	title := strings.TrimSpace(pageInfo.Title)
 	if title == "" {
-		// Final fallback: use the slug
-		title = strings.Title(strings.ReplaceAll(a.ParsedUrl.Name, "-", " "))
+		if navErr != nil {
+			return nil, fmt.Errorf("failed to load series page: %w", navErr)
+		}
+		return nil, fmt.Errorf("series page did not contain a title (did you check if the url is correct?): %s", url)
 	}
 
 	return &SeriesInfo{
-		Title:       strings.TrimSpace(title),
-		Description: strings.TrimSpace(description),
+		Title:       title,
+		Description: strings.TrimSpace(pageInfo.Description),
 	}, nil
 }
 
@@ -243,10 +254,17 @@ func (s *Scraper) scrapeSeasons(ctx context.Context, payload AllOrSpecific) erro
 	sort.Slice(seasons, func(i, j int) bool { return seasons[i] < seasons[j] })
 
 	for _, season := range seasons {
+		if err := ctx.Err(); err != nil {
+			return err
+		}
+
 		if s.shouldDownloadSeason(season, payload) {
 			slog.Debug("Queueing season for scraping", "season", season)
 
 			if err := s.scrapeSeason(ctx, season, AllOrSpecific{All: true}); err != nil {
+				if ctx.Err() != nil {
+					return err
+				}
 				slog.Error("Failed to scrape season", "season", season, "error", err)
 			}
 		} else {
@@ -343,6 +361,10 @@ func (s *Scraper) scrapeSeason(ctx context.Context, season uint32, payload AllOr
 	}
 	slog.Debug("Found episodes", "raw", epEntries, "parsed", episodes, "maxEpisodes", maxEpisodes)
 	for _, episode := range episodes {
+		if err := ctx.Err(); err != nil {
+			return err
+		}
+
 		slog.Debug("Processing episode", "season", season, "episode", episode)
 		if s.Settings.CheckIfExists != nil && s.Settings.CheckIfExists(season, episode, maxEpisodes, nil) {
 			slog.Info("Skipping episode because it already exists", "season", season, "episode", episode)
@@ -371,6 +393,9 @@ func (s *Scraper) scrapeSeason(ctx context.Context, season uint32, payload AllOr
 
 			slog.Debug("Queueing episode for scraping", "season", season, "episode", episode)
 			if err := s.scrapeEpisode(ctx, season, episode, maxEpisodes); err != nil {
+				if ctx.Err() != nil {
+					return err
+				}
 				slog.Error("Failed to scrape episode", "season", season, "episode", episode, "error", err)
 			}
 		} else {
@@ -475,9 +500,10 @@ func (s *Scraper) scrapeEpisode(ctx context.Context, season, episode, maxEpisode
 			vt.Type = VideoTypeSub
 		}
 
-		if opt.Lang == "de" {
+		switch opt.Lang {
+		case "de":
 			vt.Language = LanguageGerman
-		} else if opt.Lang == "en" {
+		case "en":
 			vt.Language = LanguageEnglish
 		}
 
@@ -548,18 +574,66 @@ func (s *Scraper) sendStreamToDownloader(ctx context.Context, season, episode, m
 
 		// Try to extract
 		extracted, err := extractors.ExtractVideoUrlWithExtractor(ctx, absoluteUrl, stream.Name, "", currentUrl)
+		if err != nil {
+			slog.Warn("Extractor failed", "name", stream.Name, "url", absoluteUrl, "error", err)
+			continue
+		}
+		if extracted == nil {
+			slog.Warn("Extractor returned nothing", "name", stream.Name, "url", absoluteUrl)
+			continue
+		}
+		if err := validateExtractedStream(ctx, extracted); err != nil {
+			slog.Warn("Extractor returned unusable stream", "name", stream.Name, "url", extracted.Url, "error", err)
+			continue
+		}
 		if err == nil && extracted != nil {
-			s.Sender <- &DownloadTaskWrapper{
-				Episode: EpisodeInfo{Season: season, Episode: episode, MaxEpisodes: maxEpisodes},
-				Lang:    videoType,
-				Url:     extracted.Url,
-				Referer: extracted.Referer,
+			task := &DownloadTaskWrapper{
+				Episode:            EpisodeInfo{Season: season, Episode: episode, MaxEpisodes: maxEpisodes},
+				Lang:               videoType,
+				Url:                extracted.Url,
+				Referer:            extracted.Referer,
+				UserAgent:          extracted.UserAgent,
+				OnDownloadStart:    extracted.OnDownloadStart,
+				OnDownloadComplete: extracted.OnDownloadComplete,
 			}
-			return nil
+			select {
+			case s.Sender <- task:
+				return nil
+			case <-ctx.Done():
+				return ctx.Err()
+			}
 		}
 	}
 
 	return fmt.Errorf("no valid hoster found")
+}
+
+func validateExtractedStream(ctx context.Context, extracted *extractors.ExtractedVideo) error {
+	if extracted.OnDownloadStart != nil {
+		return nil
+	}
+
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, extracted.Url, nil)
+	if err != nil {
+		return err
+	}
+	if extracted.Referer != "" {
+		req.Header.Set("Referer", extracted.Referer)
+	}
+	if extracted.UserAgent != "" {
+		req.Header.Set("User-Agent", extracted.UserAgent)
+	}
+
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		return err
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode < http.StatusOK || resp.StatusCode >= http.StatusMultipleChoices {
+		return fmt.Errorf("bad status: %s", resp.Status)
+	}
+	return nil
 }
 
 func init() {

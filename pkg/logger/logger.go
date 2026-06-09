@@ -7,6 +7,7 @@ import (
 	"io"
 	"log/slog"
 	"os"
+	"strings"
 	"sync"
 
 	"github.com/fatih/color"
@@ -33,18 +34,47 @@ var levelColors = map[slog.Level]*color.Color{
 }
 
 var (
-	logFile io.Writer
+	logFile *os.File
 )
 
 // CustomHandler is a custom slog handler for pretty printing.
 type CustomHandler struct {
-	w    io.Writer
-	opts slog.HandlerOptions
-	mu   *sync.Mutex
+	writer *terminalWriter
+	opts   slog.HandlerOptions
+	mu     *sync.Mutex
+	attrs  []slog.Attr
+	groups []string
+}
+
+type terminalWriter struct {
+	mu sync.RWMutex
+	w  io.Writer
 }
 
 func NewCustomHandler(w io.Writer, opts slog.HandlerOptions) *CustomHandler {
-	return &CustomHandler{w: w, opts: opts, mu: &sync.Mutex{}}
+	return &CustomHandler{writer: &terminalWriter{w: w}, opts: opts, mu: &sync.Mutex{}}
+}
+
+func (w *terminalWriter) Set(next io.Writer) {
+	w.mu.Lock()
+	w.w = next
+	w.mu.Unlock()
+}
+
+func (w *terminalWriter) Write(p []byte) (int, error) {
+	w.mu.RLock()
+	out := w.w
+	w.mu.RUnlock()
+	return out.Write(p)
+}
+
+func (w *terminalWriter) Flush() {
+	w.mu.RLock()
+	out := w.w
+	w.mu.RUnlock()
+	if flusher, ok := out.(interface{ Flush() }); ok {
+		flusher.Flush()
+	}
 }
 
 func (h *CustomHandler) Enabled(_ context.Context, level slog.Level) bool {
@@ -72,43 +102,71 @@ func (h *CustomHandler) Handle(_ context.Context, r slog.Record) error {
 
 	var buf bytes.Buffer
 	fmt.Fprintf(&buf, "%s %s > %s", timeStr, levelStr, r.Message)
-	r.Attrs(func(a slog.Attr) bool {
-		fmt.Fprintf(&buf, " %s=%v", a.Key, a.Value)
-		return true
-	})
+	h.writeAttrs(&buf, h.attrs)
+	h.writeRecordAttrs(&buf, r)
 	buf.WriteByte('\n')
 
-	h.w.Write(buf.Bytes())
-
-	if flusher, ok := h.w.(interface{ Flush() }); ok {
-		flusher.Flush()
-	} else if syncer, ok := h.w.(interface{ Sync() error }); ok {
-		_ = syncer.Sync()
-	}
+	h.writer.Write(buf.Bytes())
+	h.writer.Flush()
 
 	if logFile != nil {
 		var fileBuf bytes.Buffer
 		fmt.Fprintf(&fileBuf, "%s %s > %s", timeStr, levelName, r.Message)
-		r.Attrs(func(a slog.Attr) bool {
-			fmt.Fprintf(&fileBuf, " %s=%v", a.Key, a.Value)
-			return true
-		})
+		h.writeAttrs(&fileBuf, h.attrs)
+		h.writeRecordAttrs(&fileBuf, r)
 		fileBuf.WriteByte('\n')
 		logFile.Write(fileBuf.Bytes())
-		if f, ok := logFile.(*os.File); ok {
-			_ = f.Sync()
-		}
 	}
 
 	return nil
 }
 
 func (h *CustomHandler) WithAttrs(attrs []slog.Attr) slog.Handler {
-	return h // Simplified for now
+	next := h.clone()
+	next.attrs = append(next.attrs, attrs...)
+	return next
 }
 
 func (h *CustomHandler) WithGroup(name string) slog.Handler {
-	return h // Simplified for now
+	if name == "" {
+		return h
+	}
+
+	next := h.clone()
+	next.groups = append(next.groups, name)
+	return next
+}
+
+func (h *CustomHandler) clone() *CustomHandler {
+	next := *h
+	next.attrs = append([]slog.Attr(nil), h.attrs...)
+	next.groups = append([]string(nil), h.groups...)
+	return &next
+}
+
+func (h *CustomHandler) SetWriter(w io.Writer) {
+	h.writer.Set(w)
+}
+
+func (h *CustomHandler) writeRecordAttrs(buf *bytes.Buffer, r slog.Record) {
+	r.Attrs(func(a slog.Attr) bool {
+		h.writeAttr(buf, a)
+		return true
+	})
+}
+
+func (h *CustomHandler) writeAttrs(buf *bytes.Buffer, attrs []slog.Attr) {
+	for _, attr := range attrs {
+		h.writeAttr(buf, attr)
+	}
+}
+
+func (h *CustomHandler) writeAttr(buf *bytes.Buffer, attr slog.Attr) {
+	key := attr.Key
+	if len(h.groups) > 0 {
+		key = strings.Join(append(append([]string(nil), h.groups...), key), ".")
+	}
+	fmt.Fprintf(buf, " %s=%v", key, attr.Value)
 }
 
 // InitDefaultLogger initializes the global logger with the specified debug level.
@@ -141,16 +199,25 @@ func InitDefaultLogger(debug bool, logFilePath string) {
 }
 
 func SetWriter(w io.Writer) {
-	currentLevel := slog.LevelInfo
 	if defaultHandler, ok := slog.Default().Handler().(*CustomHandler); ok {
-		currentLevel = defaultHandler.opts.Level.Level()
+		defaultHandler.SetWriter(w)
+		return
 	}
 
 	slog.SetDefault(slog.New(NewCustomHandler(w, slog.HandlerOptions{
-		Level: currentLevel,
+		Level: slog.LevelInfo,
 	})))
 }
 
 func ResetWriter() {
 	SetWriter(os.Stderr)
+}
+
+func Close() {
+	if logFile == nil {
+		return
+	}
+	_ = logFile.Sync()
+	_ = logFile.Close()
+	logFile = nil
 }

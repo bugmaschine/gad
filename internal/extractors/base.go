@@ -13,11 +13,13 @@ const (
 )
 
 type ExtractedVideo struct {
-	Url       string
-	Referer   string
-	UserAgent string
-	IsM3U8    bool
-	Filename  string
+	Url                string
+	Referer            string
+	UserAgent          string
+	IsM3U8             bool
+	Filename           string
+	OnDownloadStart    func(context.Context) (func(), error)
+	OnDownloadComplete func(context.Context) error
 }
 
 type Extractor interface {

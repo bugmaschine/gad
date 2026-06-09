@@ -65,7 +65,7 @@ func (l *LoadX) ExtractVideoUrl(ctx context.Context, from ExtractFrom) (*Extract
 
 	ua := from.UserAgent
 	if ua == "" {
-		ua = "Mozilla/5.0 (X11; Linux x86_64; rv:109.0) Gecko/20100101 Firefox/115.0"
+		ua = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/148.0.0.0 Safari/537.36"
 	}
 	req.Header.Set("User-Agent", ua)
 	req.Header.Set("Accept-Language", "en-US,en;q=0.5")
