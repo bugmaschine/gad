@@ -7,6 +7,7 @@ The main changes are the following:
 * Queue mode (basically keeps a library up to date or waits for episodes to be released in a specific language)
 * Logging to file
 * Some smaller changes
+* Updated extractors
 
 It mostly keeps compatibility with the original [sdl](https://github.com/Funami580/sdl), including things like filenames.
 
@@ -16,18 +17,18 @@ Download from [releases](https://github.com/bugmaschine/gad/releases)
 ## Supported sites
 ### German
 * [AniWorld](https://aniworld.to)
-* ~~[S.to](https://s.to)~~ — I do not support s.to because I don't use it. The original [sdl](https://github.com/Funami580/sdl) does support it though.
+* ~~[S.to](https://s.to)~~ — gad dosen't support s.to as it's out of scope. The original [sdl](https://github.com/Funami580/sdl) does support it though.
 
 ## Planned sites
-+ [FireAnime](https://fireani.me)
++ [FireAnime](https://fireani.me) — FireAnime seems to use the same providers that Aniworld uses. It's probably just up to writting some code to extract the hoster links.
 
 ## Supported extractors
 * Doodstream
-* Filemoon
+* Filemoon / Byse **Updated!**
 * LoadX
 * Speedfiles
 * Streamtape
-* Vidmoly
+* Vidmoly **Updated!**
 * Vidoza
 * Voe
 
@@ -153,6 +154,7 @@ Flags:
 ## Scripting
 
 You can use `gad` in scripts to keep your library up to date. `gad` will return code 0 if everything went without a problem.
+
 ## Notes
 If FFmpeg and ChromeDriver are not found in the `PATH`, they will be downloaded automatically.
 
