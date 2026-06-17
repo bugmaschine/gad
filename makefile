@@ -14,7 +14,7 @@ build_windowstolinux:
 	copy gad-linux-x64 V:\Anime\gad-linux-x64
 	del gad-linux-x64
 
-build_linuxtolinux:
+build_share:
 	GOOS=linux GOARCH=amd64 go build -o gad-linux-x64 ./cmd/gad/main.go
 	mv gad-linux-x64 ~/media/Anime/gad-linux-x64
 

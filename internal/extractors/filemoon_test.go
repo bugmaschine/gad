@@ -1,11 +1,22 @@
 package extractors
 
 import (
+	"context"
 	"crypto/sha256"
 	"encoding/base64"
+	"io"
+	"net/http"
+	"net/http/cookiejar"
+	"net/url"
 	"strings"
 	"testing"
 )
+
+type filemoonRoundTripFunc func(*http.Request) (*http.Response, error)
+
+func (fn filemoonRoundTripFunc) RoundTrip(req *http.Request) (*http.Response, error) {
+	return fn(req)
+}
 
 func TestFilemoonSupportsKnownHosts(t *testing.T) {
 	extractor := &Filemoon{}
@@ -34,7 +45,7 @@ func TestFilemoonWebAuthnIncludesDeviceClient(t *testing.T) {
 		"challenge_id": "PRFswbZRBRnc7THgLfXTd8eV",
 		"nonce":        "zy3pijnAVI5TM-0xs3GfkPdE4KZFeD-TCJUwn0IAmLU",
 	}
-	profile := filemoonDeviceProfiles[0]
+	profile := generateRandomProfile()
 
 	body, err := filemoonWebAuthn(challenge, profile)
 	if err != nil {
@@ -65,6 +76,96 @@ func TestFilemoonFingerprintRequestBodyExcludesClient(t *testing.T) {
 	if _, ok := body["fingerprint"]; !ok {
 		t.Fatalf("fingerprint request body missing fingerprint: %v", body)
 	}
+}
+
+func TestFilemoonPostJSONUsesCookieJar(t *testing.T) {
+	jar, err := cookiejar.New(nil)
+	if err != nil {
+		t.Fatalf("cookiejar.New returned error: %v", err)
+	}
+
+	client := &http.Client{
+		Jar: jar,
+		Transport: filemoonRoundTripFunc(func(req *http.Request) (*http.Response, error) {
+			switch req.URL.Path {
+			case "/challenge":
+				if got := req.Header.Get("Cookie"); got != "" {
+					t.Fatalf("first request unexpectedly included cookie header %q", got)
+				}
+				return filemoonTestJSONResponse(req, `{"ok": true}`, "byse_challenge=ok; Path=/"), nil
+			case "/attest":
+				cookie, err := req.Cookie("byse_challenge")
+				if err != nil {
+					t.Fatalf("second request did not include jar cookie: %v", err)
+				}
+				if cookie.Value != "ok" {
+					t.Fatalf("unexpected jar cookie value: got %q want %q", cookie.Value, "ok")
+				}
+				return filemoonTestJSONResponse(req, `{"ok": true}`, ""), nil
+			default:
+				t.Fatalf("unexpected request path %q", req.URL.Path)
+				return nil, nil
+			}
+		}),
+	}
+
+	extractor := &Filemoon{}
+	headers := map[string]string{"User-Agent": filemoonDefaultUA}
+	if _, err := extractor.postJSON(context.Background(), client, "http://filemoon.test/challenge", headers, map[string]any{}); err != nil {
+		t.Fatalf("challenge postJSON returned error: %v", err)
+	}
+	if _, err := extractor.postJSON(context.Background(), client, "http://filemoon.test/attest", headers, map[string]any{}); err != nil {
+		t.Fatalf("attest postJSON returned error: %v", err)
+	}
+}
+
+func TestFilemoonSetFingerprintCookiesStoresViewerAndDevice(t *testing.T) {
+	jar, err := cookiejar.New(nil)
+	if err != nil {
+		t.Fatalf("cookiejar.New returned error: %v", err)
+	}
+
+	err = filemoonSetFingerprintCookies(jar, "https://filemoon.to/", map[string]any{
+		"viewer_id":  "viewer-123",
+		"device_id":  "device-456",
+		"token":      "token",
+		"confidence": 1,
+	})
+	if err != nil {
+		t.Fatalf("filemoonSetFingerprintCookies returned error: %v", err)
+	}
+
+	requestURL, err := url.Parse("https://filemoon.to/api/videos/example/embed/captcha")
+	if err != nil {
+		t.Fatalf("url.Parse returned error: %v", err)
+	}
+	cookies := map[string]string{}
+	for _, cookie := range jar.Cookies(requestURL) {
+		cookies[cookie.Name] = cookie.Value
+	}
+
+	for name, want := range map[string]string{
+		"byse_viewer_id": "viewer-123",
+		"byse_device_id": "device-456",
+	} {
+		if got := cookies[name]; got != want {
+			t.Fatalf("unexpected %s cookie: got %q want %q", name, got, want)
+		}
+	}
+}
+
+func filemoonTestJSONResponse(req *http.Request, body, setCookie string) *http.Response {
+	resp := &http.Response{
+		StatusCode: http.StatusOK,
+		Status:     "200 OK",
+		Header:     make(http.Header),
+		Body:       io.NopCloser(strings.NewReader(body)),
+		Request:    req,
+	}
+	if setCookie != "" {
+		resp.Header.Set("Set-Cookie", setCookie)
+	}
+	return resp
 }
 
 func TestSolveFilemoonPoWUsesByseCustomHash(t *testing.T) {

@@ -19,12 +19,15 @@ import (
 	"math/big"
 	"math/bits"
 	"net/http"
+	"net/http/cookiejar"
 	"net/url"
 	"regexp"
 	"sort"
 	"strconv"
 	"strings"
 	"time"
+
+	"github.com/brianvoe/gofakeit/v7"
 )
 
 type Filemoon struct{}
@@ -34,25 +37,212 @@ const (
 	filemoonPoWTimeout = 20 * time.Second
 )
 
-//go:embed byse_profiles.json
-var filemoonProfilesJSON []byte
-
-type filemoonDeviceProfile struct {
-	UA     string         `json:"ua"`
-	Client map[string]any `json:"client"`
+type clientOutput struct {
+	Architecture        string             `json:"architecture,omitempty"`
+	Bitness             string             `json:"bitness,omitempty"`
+	Platform            string             `json:"platform,omitempty"`
+	PlatformVersion     string             `json:"platform_version,omitempty"`
+	Model               string             `json:"model,omitempty"`
+	UaFullVersion       string             `json:"ua_full_version,omitempty"`
+	BrandFullVersions   []BrandFullVersion `json:"brand_full_versions,omitempty"`
+	PixelRatio          float64            `json:"pixel_ratio"`
+	ScreenWidth         int                `json:"screen_width"`
+	ScreenHeight        int                `json:"screen_height"`
+	ColorDepth          int                `json:"color_depth"`
+	Languages           []string           `json:"languages,omitempty"`
+	Timezone            string             `json:"timezone,omitempty"`
+	HardwareConcurrency int                `json:"hardware_concurrency,omitempty"`
+	DeviceMemory        float64            `json:"device_memory,omitempty"`
+	TouchPoints         int                `json:"touch_points,omitempty"`
+	WebglVendor         string             `json:"webgl_vendor,omitempty"`
+	WebglRenderer       string             `json:"webgl_renderer,omitempty"`
+	CanvasHash          string             `json:"canvas_hash,omitempty"`
+	AudioHash           string             `json:"audio_hash,omitempty"`
+	WebglParamsHash     string             `json:"webgl_params_hash,omitempty"`
+	FontsHash           string             `json:"fonts_hash,omitempty"`
+	CodecsHash          string             `json:"codecs_hash,omitempty"`
+	MediaDevices        string             `json:"media_devices,omitempty"`
+	PointerType         string             `json:"pointer_type,omitempty"`
+	Extra               struct {
+		Vendor     string `json:"vendor"`
+		AppVersion string `json:"appVersion"`
+	} `json:"extra"`
 }
 
-var filemoonDeviceProfiles = mustParseFilemoonDeviceProfiles(string(filemoonProfilesJSON))
+// BrandFullVersion mirrors a browser brand entry
+type BrandFullVersion struct {
+	Brand   string `json:"brand"`
+	Version string `json:"version"`
+}
 
-func mustParseFilemoonDeviceProfiles(raw string) []filemoonDeviceProfile {
-	var profiles []filemoonDeviceProfile
-	if err := json.Unmarshal([]byte(raw), &profiles); err != nil {
-		panic(err)
+// ProfileOutput is the top-level object in the output array
+type filemoonDeviceProfile struct {
+	UA     string       `json:"ua"`
+	Client clientOutput `json:"client"`
+}
+
+// generateBase64URL creates a random base64url-encoded string of given byte length (without padding)
+func generateBase64URL(byteLen int) string {
+	buf := make([]byte, byteLen)
+	_, _ = rand.Read(buf)
+	return base64.RawURLEncoding.EncodeToString(buf)
+}
+
+// randomInt returns a random integer in [min, max]
+func randomInt(min, max int) int {
+	n, _ := rand.Int(rand.Reader, big.NewInt(int64(max-min+1)))
+	return int(n.Int64()) + min
+}
+
+// randomChoice picks a random element from a slice
+func randomChoice(options []string) string {
+	return options[randomInt(0, len(options)-1)]
+}
+
+// generateRandomProfile creates a plausible random fingerprint profile
+func generateRandomProfile() filemoonDeviceProfile {
+	gofakeit.Seed(time.Now().UnixNano())
+
+	// Simulate realistic user agents
+	userAgents := []string{
+		gofakeit.ChromeUserAgent(),
+		gofakeit.FirefoxUserAgent(),
+		gofakeit.SafariUserAgent(),
 	}
-	if len(profiles) == 0 {
-		panic("filemoon: byse_profiles.json did not contain any profiles (did you remove the file during compiling?)")
+	ua := randomChoice(userAgents)
+
+	// Simulate common platforms
+	platforms := []string{"Windows", "macOS", "Linux", "Android", "iOS"}
+	arch := "x86"
+	bitness := "64"
+
+	platform := randomChoice(platforms)
+	switch platform {
+	case "Windows":
+		arch = "x86"
+	case "macOS":
+		arch = "arm"
+	case "Android":
+		arch = "arm"
+	case "iOS":
+		arch = "arm"
 	}
-	return profiles
+	// Bitness always 64 in modern browsers, occasionally 32 for old Linux/Windows
+	if gofakeit.Bool() && (platform == "Linux" || platform == "Windows") {
+		bitness = "32"
+	}
+
+	languages := []string{gofakeit.LanguageAbbreviation()}
+	if gofakeit.Bool() {
+		languages = append(languages, gofakeit.LanguageAbbreviation())
+	}
+
+	timezone := gofakeit.TimeZoneRegion()
+
+	concurrency := randomInt(2, 32)
+	memory := []float64{0.25, 0.5, 1, 2, 4, 8, 16}[randomInt(0, 6)]
+
+	touch := 0
+	if strings.Contains(platform, "Android") || strings.Contains(platform, "iOS") {
+		touch = randomInt(1, 10)
+	}
+
+	// WebGL vendor/renderer
+	vendors := []string{
+		"Google Inc. (Intel)",
+		"Google Inc. (AMD)",
+		"Google Inc. (NVIDIA)",
+		"Google Inc. (Apple)",
+		"Google Inc. (Qualcomm)",
+	}
+	renderers := map[string][]string{
+		"Google Inc. (Intel)":    {"ANGLE (Intel, Intel(R) UHD Graphics 620 Direct3D11 vs_5_0 ps_5_0)"},
+		"Google Inc. (AMD)":      {"ANGLE (AMD, Radeon RX 580 Direct3D11 vs_5_0 ps_5_0)"},
+		"Google Inc. (NVIDIA)":   {"ANGLE (NVIDIA, GeForce RTX 3060 Direct3D11 vs_5_0 ps_5_0)"},
+		"Google Inc. (Apple)":    {"ANGLE (Apple, Apple M1, OpenGL 4.1)"},
+		"Google Inc. (Qualcomm)": {"ANGLE (Qualcomm, Adreno 650, OpenGL ES 3.2)"},
+	}
+	vendor := randomChoice(vendors)
+	renderer := randomChoice(renderers[vendor])
+
+	// Hashes (base64url, 32 bytes -> 43 characters)
+	canvasHash := generateBase64URL(32)
+	audioHash := generateBase64URL(32)
+	webglParamsHash := generateBase64URL(32)
+	fontsHash := generateBase64URL(32)
+	codecsHash := generateBase64URL(32)
+
+	// Media devices string
+	ai := randomInt(0, 3)
+	ao := randomInt(0, 3)
+	vi := randomInt(0, 2)
+	mediaDevices := fmt.Sprintf("ai%dao%dvi%d", ai, ao, vi)
+
+	// Pointer type
+	pointerTypes := []string{
+		"coarse",
+		"fine",
+		"coarse,fine",
+		"fine,hover",
+		"coarse,hover",
+		"coarse,fine,hover",
+	}
+	pointerType := randomChoice(pointerTypes)
+
+	// Extra vendor strings
+	extraVendors := []string{"Google Inc.", "Apple Computer, Inc.", "Mozilla", ""}
+	extraVendor := randomChoice(extraVendors)
+	appVersion := gofakeit.AppVersion()
+
+	screenWidths := []int{1920, 2560, 1440, 1366, 1280, 375, 414}
+	screenHeights := []int{1080, 1440, 900, 768, 720, 812, 896}
+	idx := randomInt(0, len(screenWidths)-1)
+	screenW := screenWidths[idx]
+	screenH := screenHeights[idx]
+
+	model := "" // model can be empty, as browsers often omit it too
+
+	return filemoonDeviceProfile{
+		UA: ua,
+		Client: clientOutput{
+			Architecture:    arch,
+			Bitness:         bitness,
+			Platform:        platform,
+			PlatformVersion: gofakeit.AppVersion(),
+			Model:           model,
+			UaFullVersion:   gofakeit.AppVersion(),
+			BrandFullVersions: []BrandFullVersion{
+				{Brand: "Chromium", Version: fmt.Sprintf("%d", randomInt(110, 130))},
+				{Brand: "Google Chrome", Version: fmt.Sprintf("%d", randomInt(110, 130))},
+				{Brand: "Not/A)Brand", Version: "24"},
+			},
+			PixelRatio:          []float64{1, 1.5, 2, 3}[randomInt(0, 3)],
+			ScreenWidth:         screenW,
+			ScreenHeight:        screenH,
+			ColorDepth:          []int{24, 30}[randomInt(0, 1)],
+			Languages:           languages,
+			Timezone:            timezone,
+			HardwareConcurrency: concurrency,
+			DeviceMemory:        memory,
+			TouchPoints:         touch,
+			WebglVendor:         vendor,
+			WebglRenderer:       renderer,
+			CanvasHash:          canvasHash,
+			AudioHash:           audioHash,
+			WebglParamsHash:     webglParamsHash,
+			FontsHash:           fontsHash,
+			CodecsHash:          codecsHash,
+			MediaDevices:        mediaDevices,
+			PointerType:         pointerType,
+			Extra: struct {
+				Vendor     string `json:"vendor"`
+				AppVersion string `json:"appVersion"`
+			}{
+				Vendor:     extraVendor,
+				AppVersion: appVersion,
+			},
+		},
+	}
 }
 
 func (f *Filemoon) Names() []string {
@@ -81,16 +271,21 @@ func (f *Filemoon) ExtractVideoUrl(ctx context.Context, from ExtractFrom) (*Extr
 }
 
 func (f *Filemoon) loadByseMediaURL(ctx context.Context, host, mediaID string) (*ExtractedVideo, error) {
+	client, err := newFilemoonHTTPClient()
+	if err != nil {
+		return nil, err
+	}
+
 	webURL := getFilemoonBaseURL(host, mediaID)
 	rootURL := filemoonRootURL(webURL)
-	profile := randomFilemoonDeviceProfile()
+	profile := generateRandomProfile()
 	headers, err := filemoonRequestHeaders(webURL, rootURL, profile)
 	if err != nil {
 		return nil, err
 	}
 
 	challengeURL := rootURL + "api/videos/access/challenge"
-	challenge, err := f.postForm(ctx, challengeURL, headers, url.Values{})
+	challenge, err := f.postForm(ctx, client, challengeURL, headers, url.Values{})
 	if err != nil {
 		return nil, fmt.Errorf("challenge request: %w", err)
 	}
@@ -100,7 +295,7 @@ func (f *Filemoon) loadByseMediaURL(ctx context.Context, host, mediaID string) (
 		return nil, fmt.Errorf("attestation payload: %w", err)
 	}
 	attestURL := rootURL + "api/videos/access/attest"
-	attest, err := f.postJSON(ctx, attestURL, headers, attestBody)
+	attest, err := f.postJSON(ctx, client, attestURL, headers, attestBody)
 	if err != nil {
 		return nil, fmt.Errorf("attestation request: %w", err)
 	}
@@ -109,10 +304,12 @@ func (f *Filemoon) loadByseMediaURL(ctx context.Context, host, mediaID string) (
 	if err != nil {
 		return nil, fmt.Errorf("attestation response: %w", err)
 	}
-	headers["Cookie"] = fmt.Sprintf("byse_viewer_id=%s; byse_device_id=%s", fingerprint["viewer_id"], fingerprint["device_id"])
+	if err := filemoonSetFingerprintCookies(client.Jar, rootURL, fingerprint); err != nil {
+		return nil, fmt.Errorf("attestation cookies: %w", err)
+	}
 
 	captchaURL := fmt.Sprintf("%sapi/videos/%s/embed/captcha", rootURL, mediaID)
-	captcha, err := f.postJSON(ctx, captchaURL, headers, filemoonFingerprintRequestBody(fingerprint))
+	captcha, err := f.postJSON(ctx, client, captchaURL, headers, filemoonFingerprintRequestBody(fingerprint))
 	if err != nil {
 		return nil, fmt.Errorf("captcha request: %w", err)
 	}
@@ -129,13 +326,14 @@ func (f *Filemoon) loadByseMediaURL(ctx context.Context, host, mediaID string) (
 	if err != nil {
 		return nil, fmt.Errorf("captcha response: %w", err)
 	}
+	slog.Debug("filemoon pow:", "powDifficulty", powDifficulty, "pow_token", powToken, "pow_nonce", powNonce)
 	solution := solveFilemoonPoW(powNonce, powDifficulty, filemoonPoWTimeout.Seconds())
 	if solution == "" {
 		return nil, errors.New("filemoon: unable to solve captcha proof-of-work")
 	}
 
 	verifyURL := fmt.Sprintf("%sapi/videos/%s/embed/captcha/verify", rootURL, mediaID)
-	verify, err := f.postJSON(ctx, verifyURL, headers, map[string]any{
+	verify, err := f.postJSON(ctx, client, verifyURL, headers, map[string]any{
 		"pow_token":   powToken,
 		"solution":    solution,
 		"fingerprint": fingerprint,
@@ -150,7 +348,7 @@ func (f *Filemoon) loadByseMediaURL(ctx context.Context, host, mediaID string) (
 	headers["X-Captcha-Token"] = verifyToken
 
 	playbackURL := fmt.Sprintf("%sapi/videos/%s/embed/playback", rootURL, mediaID)
-	playback, err := f.postJSON(ctx, playbackURL, headers, filemoonFingerprintRequestBody(fingerprint))
+	playback, err := f.postJSON(ctx, client, playbackURL, headers, filemoonFingerprintRequestBody(fingerprint))
 	if err != nil {
 		return nil, fmt.Errorf("playback request: %w", err)
 	}
@@ -255,42 +453,8 @@ func filemoonApplyDeviceHeaders(headers map[string]string, profile filemoonDevic
 	}
 }
 
-func randomChoice[T any](items []T) T {
-	if len(items) == 0 {
-		var zero T
-		return zero
-	}
-	n, err := rand.Int(rand.Reader, big.NewInt(int64(len(items))))
-	if err != nil {
-		return items[int(time.Now().UnixNano()%int64(len(items)))]
-	}
-	return items[int(n.Int64())]
-}
-
-func randomFilemoonDeviceProfile() filemoonDeviceProfile {
-	return randomChoice(filemoonDeviceProfiles)
-}
-
-func filemoonClientLanguages(client map[string]any) []string {
-	rawLanguages, ok := client["languages"].([]any)
-	if !ok {
-		if languages, ok := client["languages"].([]string); ok {
-			return languages
-		}
-		return nil
-	}
-
-	languages := make([]string, 0, len(rawLanguages))
-	for _, rawLanguage := range rawLanguages {
-		if language, ok := rawLanguage.(string); ok && language != "" {
-			languages = append(languages, language)
-		}
-	}
-	return languages
-}
-
 func filemoonAcceptLanguage(profile filemoonDeviceProfile) string {
-	languages := filemoonClientLanguages(profile.Client)
+	languages := profile.Client.Languages
 	if len(languages) == 0 {
 		return "en-US,en;q=0.9"
 	}
@@ -310,27 +474,21 @@ func filemoonAcceptLanguage(profile filemoonDeviceProfile) string {
 	return strings.Join(parts, ",")
 }
 
-func filemoonClientStringDefault(client map[string]any, name string, fallback string) string {
-	if value, ok := client[name].(string); ok && value != "" {
-		return value
+func filemoonClientStringDefault(client clientOutput, name string, fallback string) string {
+	if client.UaFullVersion != "" {
+		return client.UaFullVersion
 	}
 	return fallback
 }
 
-func filemoonSecCHUA(client map[string]any, fullVersion bool) string {
-	rawVersions, ok := client["brand_full_versions"].([]any)
-	if !ok {
-		return ""
-	}
+func filemoonSecCHUA(client clientOutput, fullVersion bool) string {
+	rawVersions := client.BrandFullVersions
 
 	parts := make([]string, 0, len(rawVersions))
 	for _, rawVersion := range rawVersions {
-		versionMap, ok := rawVersion.(map[string]any)
-		if !ok {
-			continue
-		}
-		brand, _ := versionMap["brand"].(string)
-		version, _ := versionMap["version"].(string)
+
+		brand := rawVersion.Brand
+		version := rawVersion.Version
 		if brand == "" || version == "" {
 			continue
 		}
@@ -346,6 +504,39 @@ func filemoonFingerprintRequestBody(fingerprint map[string]any) map[string]any {
 	return map[string]any{
 		"fingerprint": fingerprint,
 	}
+}
+
+func newFilemoonHTTPClient() (*http.Client, error) {
+	jar, err := cookiejar.New(nil)
+	if err != nil {
+		return nil, fmt.Errorf("filemoon: creating cookie jar: %w", err)
+	}
+	return &http.Client{Jar: jar}, nil
+}
+
+func filemoonSetFingerprintCookies(jar http.CookieJar, rootURL string, fingerprint map[string]any) error {
+	if jar == nil {
+		return nil
+	}
+
+	viewerID, err := filemoonStringField(fingerprint, "viewer_id")
+	if err != nil {
+		return err
+	}
+	deviceID, err := filemoonStringField(fingerprint, "device_id")
+	if err != nil {
+		return err
+	}
+	parsedRootURL, err := url.Parse(rootURL)
+	if err != nil {
+		return err
+	}
+
+	jar.SetCookies(parsedRootURL, []*http.Cookie{
+		{Name: "byse_viewer_id", Value: viewerID, Path: "/"},
+		{Name: "byse_device_id", Value: deviceID, Path: "/"},
+	})
+	return nil
 }
 
 func filemoonFingerprintFromAttest(attest map[string]any) (map[string]any, error) {
@@ -373,19 +564,19 @@ func filemoonFingerprintFromAttest(attest map[string]any) (map[string]any, error
 	}, nil
 }
 
-func (f *Filemoon) postForm(ctx context.Context, endpoint string, headers map[string]string, form url.Values) (map[string]any, error) {
-	return f.doJSON(ctx, http.MethodPost, endpoint, headers, "application/x-www-form-urlencoded", strings.NewReader(form.Encode()))
+func (f *Filemoon) postForm(ctx context.Context, client *http.Client, endpoint string, headers map[string]string, form url.Values) (map[string]any, error) {
+	return f.doJSON(ctx, client, http.MethodPost, endpoint, headers, "application/x-www-form-urlencoded", strings.NewReader(form.Encode()))
 }
 
-func (f *Filemoon) postJSON(ctx context.Context, endpoint string, headers map[string]string, body any) (map[string]any, error) {
+func (f *Filemoon) postJSON(ctx context.Context, client *http.Client, endpoint string, headers map[string]string, body any) (map[string]any, error) {
 	data, err := json.Marshal(body)
 	if err != nil {
 		return nil, err
 	}
-	return f.doJSON(ctx, http.MethodPost, endpoint, headers, "application/json", bytes.NewReader(data))
+	return f.doJSON(ctx, client, http.MethodPost, endpoint, headers, "application/json", bytes.NewReader(data))
 }
 
-func (f *Filemoon) doJSON(ctx context.Context, method, endpoint string, headers map[string]string, contentType string, body io.Reader) (map[string]any, error) {
+func (f *Filemoon) doJSON(ctx context.Context, client *http.Client, method, endpoint string, headers map[string]string, contentType string, body io.Reader) (map[string]any, error) {
 	req, err := http.NewRequestWithContext(ctx, method, endpoint, body)
 	if err != nil {
 		return nil, err
@@ -397,7 +588,10 @@ func (f *Filemoon) doJSON(ctx context.Context, method, endpoint string, headers 
 		req.Header.Set("Content-Type", contentType)
 	}
 
-	resp, err := http.DefaultClient.Do(req)
+	if client == nil {
+		client = http.DefaultClient
+	}
+	resp, err := client.Do(req)
 	if err != nil {
 		return nil, err
 	}
@@ -478,7 +672,7 @@ func filemoonMapKeys(data map[string]any) []string {
 
 // ---------------------------------------------------------------------------
 // ported from https://github.com/icarok99/script.module.resolveurl
-// The code below is licensed under GPL and is not MIT licensed.
+// The code below is licensed under GPL and is NOT MIT licensed.
 //
 // This program is free software: you can redistribute it and/or modify
 // it under the terms of the GNU General Public License as published by
@@ -526,9 +720,6 @@ func filemoonWebAuthn(challenge map[string]any, profile filemoonDeviceProfile) (
 	copy(paddedY[32-len(y):], y)
 
 	client := profile.Client
-	if client == nil {
-		client = map[string]any{}
-	}
 
 	return map[string]any{
 		"viewer_id":    "",
@@ -550,88 +741,175 @@ func filemoonWebAuthn(challenge map[string]any, profile filemoonDeviceProfile) (
 		"attributes": map[string]any{"entropy": "high"},
 	}, nil
 }
-
 func solveFilemoonPoW(nonce string, difficulty int, timeoutSec float64) string {
 	if difficulty <= 0 {
 		return "0"
 	}
 
-	prefix := nonce + ":"
+	prefix := []byte(nonce)
+	prefix = append(prefix, ':')
+
 	deadline := time.Now().Add(time.Duration(timeoutSec * float64(time.Second)))
-	var i int64
-	for {
-		for range 1024 {
-			candidate := prefix + strconv.FormatInt(i, 10)
-			if filemoonPoWLeadingZeroBits(candidate) >= difficulty {
+
+	var scratch [filemoonPoWBlockWords]uint32
+	var out [filemoonPoWOutputWords]uint32
+
+	buf := make([]byte, len(prefix), len(prefix)+20)
+	copy(buf, prefix)
+
+	for i := int64(0); ; i++ {
+		candidate := strconv.AppendInt(buf[:len(prefix)], i, 10)
+
+		if difficulty <= 32 {
+			firstWord := filemoonCustomHashFirstWord(candidate, &scratch)
+			if bits.LeadingZeros32(firstWord) >= difficulty {
 				return strconv.FormatInt(i, 10)
 			}
-			i++
+		} else {
+			filemoonCustomHashBytesInto(candidate, &scratch, out[:])
+			if countLeadingZeroBits(out[:]) >= difficulty {
+				return strconv.FormatInt(i, 10)
+			}
 		}
-		if time.Now().After(deadline) {
+
+		if i&1023 == 1023 && time.Now().After(deadline) {
 			return ""
 		}
 	}
 }
 
 func filemoonPoWLeadingZeroBits(input string) int {
-	return countLeadingZeroBits(filemoonPoWHash(input))
+	var scratch [filemoonPoWBlockWords]uint32
+	var out [filemoonPoWOutputWords]uint32
+
+	filemoonCustomHashStringInto(input, &scratch, out[:])
+	return countLeadingZeroBits(out[:])
 }
 
 func filemoonPoWHash(input string) []uint32 {
-	return filemoonCustomHash([]byte(input))
+	var scratch [filemoonPoWBlockWords]uint32
+	out := make([]uint32, filemoonPoWOutputWords)
+
+	filemoonCustomHashStringInto(input, &scratch, out)
+	return out
 }
 
 func filemoonCustomHash(data []byte) []uint32 {
-	state := [4]uint32{1779033703, 3144134277, 1013904242, 2773480762}
+	var scratch [filemoonPoWBlockWords]uint32
+	out := make([]uint32, filemoonPoWOutputWords)
+
+	filemoonCustomHashBytesInto(data, &scratch, out)
+	return out
+}
+
+const (
+	filemoonPoWBlockWords  = 512
+	filemoonPoWOutputWords = 8
+	filemoonPoWWordMask    = filemoonPoWBlockWords - 1
+	filemoonPoWMulA        = uint32(2654435761)
+	filemoonPoWMulB        = uint32(2246822519)
+)
+
+func filemoonCustomHashFirstWord(data []byte, scratch *[filemoonPoWBlockWords]uint32) uint32 {
+	state := filemoonInitialPoWState()
 
 	for _, b := range data {
 		state[0] += uint32(b)
 		state[0] = bits.RotateLeft32(state[0], 7)
 		filemoonMix(&state)
 	}
-	for range 8 {
+
+	return filemoonCustomHashFinalizeFirstWord(&state, scratch)
+}
+
+func filemoonCustomHashBytesInto(data []byte, scratch *[filemoonPoWBlockWords]uint32, out []uint32) {
+	state := filemoonInitialPoWState()
+
+	for _, b := range data {
+		state[0] += uint32(b)
+		state[0] = bits.RotateLeft32(state[0], 7)
 		filemoonMix(&state)
 	}
 
-	const (
-		blockWords = 512
-		wordMask   = blockWords - 1
-		mulA       = uint32(2654435761)
-		mulB       = uint32(2246822519)
-	)
+	filemoonCustomHashFinalizeInto(&state, scratch, out)
+}
 
-	scratch := make([]uint32, blockWords)
-	for i := range scratch {
+func filemoonCustomHashStringInto(input string, scratch *[filemoonPoWBlockWords]uint32, out []uint32) {
+	state := filemoonInitialPoWState()
+
+	for i := 0; i < len(input); i++ {
+		state[0] += uint32(input[i])
+		state[0] = bits.RotateLeft32(state[0], 7)
 		filemoonMix(&state)
-		scratch[i] = state[0] ^ state[2]
 	}
 
-	for range 2 {
-		for i := range scratch {
-			a := scratch[i] & wordMask
-			c := scratch[i] + scratch[a]
-			c = bits.RotateLeft32(c, 13)
-			c ^= scratch[(i+1)&wordMask] * mulA
-			scratch[i] = c
-			state[0] ^= c
-			filemoonMix(&state)
-		}
+	filemoonCustomHashFinalizeInto(&state, scratch, out)
+}
+
+func filemoonInitialPoWState() [4]uint32 {
+	return [4]uint32{1779033703, 3144134277, 1013904242, 2773480762}
+}
+
+func filemoonCustomHashFinalizeFirstWord(state *[4]uint32, scratch *[filemoonPoWBlockWords]uint32) uint32 {
+	filemoonPreparePoWScratch(state, scratch)
+
+	filemoonMix(state)
+
+	s := state[0]
+	for _, d := range scratch[:filemoonPoWBlockWords/filemoonPoWOutputWords] {
+		s += d
+		s = bits.RotateLeft32(s, 5)
+		s ^= d * filemoonPoWMulB
 	}
 
-	out := make([]uint32, 8)
-	chunkSize := blockWords / len(out)
+	return s ^ state[2]
+}
+
+func filemoonCustomHashFinalizeInto(state *[4]uint32, scratch *[filemoonPoWBlockWords]uint32, out []uint32) {
+	filemoonPreparePoWScratch(state, scratch)
+
+	if len(out) > filemoonPoWOutputWords {
+		out = out[:filemoonPoWOutputWords]
+	}
+
+	chunkSize := filemoonPoWBlockWords / filemoonPoWOutputWords
 	for i := range out {
-		filemoonMix(&state)
+		filemoonMix(state)
+
 		s := state[0]
 		offset := i * chunkSize
+
 		for _, d := range scratch[offset : offset+chunkSize] {
 			s += d
 			s = bits.RotateLeft32(s, 5)
-			s ^= d * mulB
+			s ^= d * filemoonPoWMulB
 		}
+
 		out[i] = s ^ state[2]
 	}
-	return out
+}
+
+func filemoonPreparePoWScratch(state *[4]uint32, scratch *[filemoonPoWBlockWords]uint32) {
+	for i := 0; i < 8; i++ {
+		filemoonMix(state)
+	}
+
+	for i := range scratch {
+		filemoonMix(state)
+		scratch[i] = state[0] ^ state[2]
+	}
+
+	for pass := 0; pass < 2; pass++ {
+		for i := range scratch {
+			a := scratch[i] & filemoonPoWWordMask
+			c := scratch[i] + scratch[a]
+			c = bits.RotateLeft32(c, 13)
+			c ^= scratch[(i+1)&filemoonPoWWordMask] * filemoonPoWMulA
+			scratch[i] = c
+			state[0] ^= c
+			filemoonMix(state)
+		}
+	}
 }
 
 func filemoonMix(state *[4]uint32) {
@@ -668,8 +946,6 @@ func countLeadingZeroBits(state []uint32) int {
 	}
 	return total
 }
-
-// playback endpoint decoder
 
 type EncryptedPayload struct {
 	Algorithm string   `json:"algorithm"`
@@ -750,7 +1026,7 @@ func extractFilemoonPlaybackSource(data map[string]any, baseURL string) (filemoo
 	}
 
 	var payload filemoonPlaybackPayload
-	if err := DecryptPayload(encrypted, &payload); err != nil {
+	if err := decryptPayload(encrypted, &payload); err != nil {
 		return filemoonPlaybackSource{}, err
 	}
 	if source, ok := pickFilemoonPlaybackSource(payload.Sources, baseURL); ok {
@@ -859,7 +1135,7 @@ func decodeBase64Flex(s string) ([]byte, error) {
 	return base64.StdEncoding.DecodeString(s)
 }
 
-func DecryptPayload(ep EncryptedPayload, dst any) error {
+func decryptPayload(ep EncryptedPayload, dst any) error {
 	key, err := assembleKey(ep)
 	if err != nil {
 		return fmt.Errorf("assembling key: %w", err)
