@@ -29,6 +29,7 @@ type DownloadManager struct {
 	saveDir       string
 	seriesInfo    downloaders.SeriesInfo
 	skipExisting  bool
+	cache         *DirectoryCache
 }
 
 const managerTaskBuffer = 100
@@ -45,6 +46,10 @@ func NewDownloadManager(d *Downloader, maxConcurrent int, saveDir string, info d
 		seriesInfo:    info,
 		skipExisting:  skip,
 	}
+}
+
+func (m *DownloadManager) SetDirectoryCache(cache *DirectoryCache) {
+	m.cache = cache
 }
 
 func (m *DownloadManager) Submit(ctx context.Context, task ManagerTask) error {
@@ -68,7 +73,10 @@ func (m *DownloadManager) Close() {
 
 func (m *DownloadManager) ProgressDownloads(ctx context.Context) error {
 	seriesName := PrepareSeriesNameForFile(m.seriesInfo.Title)
-	cache, _ := NewDirectoryCache(m.saveDir)
+	cache := m.cache
+	if cache == nil {
+		cache, _ = NewDirectoryCache(m.saveDir)
+	}
 
 	var wg sync.WaitGroup
 	errChan := make(chan error, 1)
@@ -120,6 +128,10 @@ func (m *DownloadManager) downloadTask(ctx context.Context, seriesName string, c
 		}
 		slog.Warn("Failed download", "file", outputName, "error", err)
 		return fmt.Errorf("%s: %w", outputName, err)
+	}
+
+	if cache != nil {
+		cache.Add(outputName + ".mp4")
 	}
 
 	slog.Debug("Download finished successfully", "file", outputName)

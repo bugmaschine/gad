@@ -180,6 +180,37 @@ func TestHLSegmentRetry(t *testing.T) {
 	}
 }
 
+func TestSetRetriesControlsHLSAttempts(t *testing.T) {
+	var segmentHits atomic.Int32
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/playlist.m3u8":
+			w.Header().Set("Content-Type", "application/vnd.apple.mpegurl")
+			w.Write([]byte("#EXTM3U\n#EXT-X-VERSION:3\n#EXT-X-TARGETDURATION:1\n#EXT-X-MEDIA-SEQUENCE:0\n#EXTINF:1.0,\nseg.ts\n#EXT-X-ENDLIST\n"))
+		case "/seg.ts":
+			segmentHits.Add(1)
+			http.Error(w, "temporary failure", http.StatusInternalServerError)
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	defer server.Close()
+
+	d := newTestDownloader(t, server.Client())
+	d.SetRetries(0)
+	outputPath := filepath.Join(t.TempDir(), "video.ts")
+	task := NewDownloadTask(outputPath, server.URL+"/playlist.m3u8")
+	task.OutputPathHasExtension = true
+
+	err := d.DownloadToFile(context.Background(), task)
+	if err == nil || !strings.Contains(err.Error(), "after 1 attempts") {
+		t.Fatalf("expected failure after 1 attempt, got %v", err)
+	}
+	if segmentHits.Load() != 1 {
+		t.Fatalf("expected no segment retry, got %d segment requests", segmentHits.Load())
+	}
+}
+
 func TestHLSRequestsUseTaskUserAgent(t *testing.T) {
 	const taskUserAgent = "filemoon-profile-agent"
 

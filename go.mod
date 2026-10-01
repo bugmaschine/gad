@@ -13,6 +13,12 @@ require (
 )
 
 require (
+	github.com/vcaesar/keycode v0.10.1 // indirect
+	golang.design/x/mainthread v0.3.0 // indirect
+	golang.org/x/term v0.45.0 // indirect
+)
+
+require (
 	github.com/VividCortex/ewma v1.2.0 // indirect
 	github.com/acarl005/stripansi v0.0.0-20180116102854-5a71ef0e047d // indirect
 	github.com/brianvoe/gofakeit/v7 v7.15.0
@@ -26,6 +32,8 @@ require (
 	github.com/mattn/go-colorable v0.1.15 // indirect
 	github.com/mattn/go-isatty v0.0.22 // indirect
 	github.com/mattn/go-runewidth v0.0.24 // indirect
+	github.com/robotn/gohook v0.42.3
 	github.com/spf13/pflag v1.0.10 // indirect
-	golang.org/x/sys v0.45.0 // indirect
+	golang.design/x/hotkey v0.6.1
+	golang.org/x/sys v0.47.0 // indirect
 )

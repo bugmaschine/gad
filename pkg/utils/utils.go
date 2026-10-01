@@ -1,7 +1,9 @@
 package utils
 
 import (
+	"bufio"
 	"fmt"
+	"log/slog"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -18,79 +20,166 @@ func RemoveFileIgnoreNotExists(path string) error {
 	return nil
 }
 
-func FindSimilarFolder(baseDir, target string) (string, error) {
+type SimilarFolderMatcher struct {
+	baseDir string
+	entries []similarFolderCandidate
+}
+
+type similarFolderCandidate struct {
+	norm string
+	path string
+}
+
+const similarFolderThreshold = 0.4
+
+func NewSimilarFolderMatcher(baseDir string) (*SimilarFolderMatcher, error) {
 	entries, err := os.ReadDir(baseDir)
 	if err != nil {
-		return "", err
+		return nil, err
 	}
 
-	targetNorm := normalize(target)
-	var bestMatch string
-	var highestScore float64 = 0.0
+	matcher := &SimilarFolderMatcher{
+		baseDir: baseDir,
+		entries: make([]similarFolderCandidate, 0, len(entries)),
+	}
 
-	// Minimum threshold to consider a match "good"
-	const threshold = 0.4
-
-	for _, e := range entries {
-		if !e.IsDir() {
+	for _, entry := range entries {
+		if !entry.IsDir() {
 			continue
 		}
+		matcher.addName(entry.Name())
+	}
 
-		entryName := e.Name()
-		entryNorm := normalize(entryName)
+	return matcher, nil
+}
 
-		// Calculate similarity (0.0 to 1.0)
-		score := calculateSimilarity(targetNorm, entryNorm)
+func (m *SimilarFolderMatcher) Find(target string) (string, error) {
+	targetNorm := normalize(target)
+	var bestMatch string
+	var highestScore float64
 
+	for _, entry := range m.entries {
+		score := calculateSimilarity(targetNorm, entry.norm)
 		if score > highestScore {
 			highestScore = score
-			bestMatch = filepath.Join(baseDir, entryName)
+			bestMatch = entry.path
 		}
 	}
 
-	if highestScore > threshold {
+	if highestScore > similarFolderThreshold {
 		return bestMatch, nil
 	}
 
 	return "", fmt.Errorf("no sufficiently similar folder found (best score: %.2f)", highestScore)
 }
 
-// calculateSimilarity combines exact token overlap and string distance
+func (m *SimilarFolderMatcher) Add(folderPath string) {
+	name := filepath.Base(folderPath)
+	candidate := similarFolderCandidate{
+		norm: normalize(name),
+		path: folderPath,
+	}
+
+	for i := range m.entries {
+		if m.entries[i].path == folderPath {
+			m.entries[i] = candidate
+			return
+		}
+	}
+
+	m.entries = append(m.entries, candidate)
+}
+
+func (m *SimilarFolderMatcher) addName(name string) {
+	m.entries = append(m.entries, similarFolderCandidate{
+		norm: normalize(name),
+		path: filepath.Join(m.baseDir, name),
+	})
+}
+
+func FindSimilarFolder(baseDir, target string) (string, error) {
+	matcher, err := NewSimilarFolderMatcher(baseDir)
+	if err != nil {
+		return "", err
+	}
+	return matcher.Find(target)
+}
+
+var normalizeReplacer = strings.NewReplacer(
+	"×", "x",
+	"’", "'",
+	"‘", "'",
+	"“", "\"",
+	"”", "\"",
+	"–", "-",
+	"—", "-",
+)
+
+var nonAlnumRegex = regexp.MustCompile(`[^a-z0-9 ]+`)
+
+var stopWords = map[string]struct{}{
+	"the": {}, "a": {}, "an": {}, "of": {}, "and": {}, "in": {},
+	"is": {}, "to": {}, "with": {}, "for": {}, "on": {}, "at": {},
+}
+
+func normalize(s string) string {
+	s = CleanSearchName(s)
+	s = normalizeReplacer.Replace(s)
+	s = strings.ToLower(s)
+	s = nonAlnumRegex.ReplaceAllString(s, " ")
+	s = strings.Join(strings.Fields(s), " ") // collapses whitespace, also trims
+
+	return s
+}
+
+func meaningfulTokens(s string) []string {
+	fields := strings.Fields(s)
+	tokens := make([]string, 0, len(fields))
+	for _, f := range fields {
+		if _, isStop := stopWords[f]; isStop {
+			continue
+		}
+		tokens = append(tokens, f)
+	}
+	return tokens
+}
+
+// calculateSimilarity combines exact token overlap and string distance,
+// ignoring stop-words so generic words like "the"/"of" can't inflate the score.
 func calculateSimilarity(target, candidate string) float64 {
 	if target == candidate {
 		return 1.0
 	}
 
-	tFields := strings.Fields(target)
-	cFields := strings.Fields(candidate)
+	tFields := meaningfulTokens(target)
+	cFields := meaningfulTokens(candidate)
 
-	// 1. Check for token intersection
+	if len(tFields) == 0 || len(cFields) == 0 {
+		// nothing meaningful to compare (e.g. title was ONLY stop-words)
+		return 0
+	}
+
+	// multiset intersection so duplicate tokens can't be double-counted
+	remaining := make(map[string]int, len(cFields))
+	for _, cf := range cFields {
+		remaining[cf]++
+	}
+
 	matches := 0
 	for _, tf := range tFields {
-		for _, cf := range cFields {
-			if tf == cf {
-				matches++
-			}
+		if remaining[tf] > 0 {
+			remaining[tf]--
+			matches++
 		}
 	}
 
-	// Jaccard-ish similarity for tokens
 	tokenScore := float64(matches) / float64(len(tFields)+len(cFields)-matches)
 
-	// 2. Fallback to simple string contains (for partial word matches)
 	if strings.Contains(candidate, target) || strings.Contains(target, candidate) {
 		tokenScore += 0.2
 	}
 
 	return tokenScore
-}
-
-func normalize(s string) string {
-	s = CleanSearchName(s)
-	s = strings.ToLower(s)
-	s = strings.TrimSpace(s)
-
-	return s
 }
 
 // RemoveDirAllIgnoreNotExists removes a directory and all its contents, ignoring the error if it doesn't exist.
@@ -147,4 +236,55 @@ func IsExecutedAsAdmin() bool {
 		return false
 	}
 	return true
+}
+
+func CleanQueueList(input []string) []string {
+	var result []string
+	seen := make(map[string]struct{})
+
+	for _, line := range input {
+		line = strings.TrimSpace(line)
+		slog.Debug("Processing line from queue", "line", line)
+
+		if line == "" || strings.HasPrefix(line, "#") {
+			slog.Debug("Skipping invalid or commented line", "line", line)
+			continue
+		}
+
+		if commentIndex := strings.Index(line, "#"); commentIndex >= 0 {
+			line = strings.TrimSpace(line[:commentIndex])
+			slog.Debug("Removed comment from line", "line", line)
+		}
+		if line == "" {
+			continue
+		}
+
+		// sanity check for lines.
+		if !strings.HasPrefix(line, "http://") && !strings.HasPrefix(line, "https://") {
+			panic(fmt.Sprintf("Invalid line in queue: %s", line))
+		}
+
+		if _, ok := seen[line]; ok {
+			slog.Debug("Skipping duplicate URL", "url", line)
+			continue
+		}
+
+		seen[line] = struct{}{}
+		result = append(result, line)
+		slog.Debug("Added URL from queue", "url", line)
+	}
+
+	return result
+}
+
+func LoadQueueURLs(scanner *bufio.Scanner) ([]string, error) {
+	var lines []string
+
+	for scanner.Scan() {
+		lines = append(lines, strings.TrimSpace(scanner.Text()))
+	}
+
+	lines = CleanQueueList(lines)
+
+	return lines, scanner.Err()
 }

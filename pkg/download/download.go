@@ -30,25 +30,26 @@ import (
 )
 
 type Downloader struct {
-	client         *http.Client
-	fallbackClient *http.Client
-	progress       *mpb.Progress
-	totalBar       *mpb.Bar
-	totalSize      int64
-	limiter        *rate.Limiter
-	userAgent      string
-	ffmpegPath     string
-	debug          bool
-	mu             sync.Mutex
-	finishOnce     sync.Once
-	activeBars     int
-	closed         bool
+	client          *http.Client
+	fallbackClient  *http.Client
+	progress        *mpb.Progress
+	totalBar        *mpb.Bar
+	totalSize       int64
+	limiter         *rate.Limiter
+	userAgent       string
+	ffmpegPath      string
+	requestAttempts int
+	debug           bool
+	mu              sync.Mutex
+	finishOnce      sync.Once
+	activeBars      int
+	closed          bool
 }
 
 const (
 	hlsProgressSegmentInterval = 10
 	hlsProgressUpdateInterval  = 250 * time.Millisecond
-	hlsRequestAttempts         = 3
+	hlsDefaultRequestAttempts  = 3
 	hlsRetryDelay              = 250 * time.Millisecond
 	maxRateLimitBurst          = 1 << 20
 	maxIdleConns               = 64
@@ -67,15 +68,34 @@ func NewDownloader(userAgent string, debug bool, limitRate float64) *Downloader 
 	)
 
 	d := &Downloader{
-		client:         newHTTPClient(),
-		fallbackClient: newHTTP2FallbackClient(),
-		progress:       p,
-		limiter:        rLimit,
-		userAgent:      userAgent,
-		debug:          debug,
+		client:          newHTTPClient(),
+		fallbackClient:  newHTTP2FallbackClient(),
+		progress:        p,
+		limiter:         rLimit,
+		userAgent:       userAgent,
+		requestAttempts: hlsDefaultRequestAttempts,
+		debug:           debug,
 	}
 	logger.SetWriter(d)
 	return d
+}
+
+func (d *Downloader) SetRetries(retries int) {
+	d.requestAttempts = requestAttemptsForRetries(retries)
+}
+
+func requestAttemptsForRetries(retries int) int {
+	if retries < 0 {
+		retries = 0
+	}
+	return retries + 1
+}
+
+func (d *Downloader) hlsRequestAttempts() int {
+	if d.requestAttempts > 0 {
+		return d.requestAttempts
+	}
+	return hlsDefaultRequestAttempts
 }
 
 func newHTTPClient() *http.Client {
@@ -340,7 +360,8 @@ func (d *Downloader) readURLWithRetry(ctx context.Context, rawURL, referer, user
 
 func (d *Downloader) readURLWithRetryProgress(ctx context.Context, rawURL, referer, userAgent, description string, onContentLength, onBytes func(int64)) ([]byte, error) {
 	var lastErr error
-	for attempt := 1; attempt <= hlsRequestAttempts; attempt++ {
+	requestAttempts := d.hlsRequestAttempts()
+	for attempt := 1; attempt <= requestAttempts; attempt++ {
 		var attemptContentLength int64
 		var attemptBytes int64
 
@@ -375,7 +396,7 @@ func (d *Downloader) readURLWithRetryProgress(ctx context.Context, rawURL, refer
 			onBytes(-attemptBytes)
 		}
 
-		if attempt < hlsRequestAttempts {
+		if attempt < requestAttempts {
 			slog.Debug("Retrying HLS read", "target", description, "attempt", attempt, "error", lastErr)
 			if err := waitForRetry(ctx, attempt); err != nil {
 				return nil, err
@@ -383,7 +404,7 @@ func (d *Downloader) readURLWithRetryProgress(ctx context.Context, rawURL, refer
 		}
 	}
 
-	return nil, fmt.Errorf("failed to read %s after %d attempts: %w", description, hlsRequestAttempts, lastErr)
+	return nil, fmt.Errorf("failed to read %s after %d attempts: %w", description, requestAttempts, lastErr)
 }
 
 func (d *Downloader) readURLOnceProgress(ctx context.Context, rawURL, referer, userAgent, description string, onContentLength, onBytes func(int64)) ([]byte, error) {
@@ -435,7 +456,8 @@ func (d *Downloader) readerFor(ctx context.Context, body io.Reader) io.Reader {
 
 func (d *Downloader) getWithRetry(ctx context.Context, rawURL, referer, userAgent, description string) (*http.Response, error) {
 	var lastErr error
-	for attempt := 1; attempt <= hlsRequestAttempts; attempt++ {
+	requestAttempts := d.hlsRequestAttempts()
+	for attempt := 1; attempt <= requestAttempts; attempt++ {
 		resp, err := d.getOnce(ctx, rawURL, referer, userAgent, description)
 		if err == nil {
 			return resp, nil
@@ -446,14 +468,14 @@ func (d *Downloader) getWithRetry(ctx context.Context, rawURL, referer, userAgen
 			return nil, fmt.Errorf("failed to fetch %s: %w", description, lastErr)
 		}
 
-		if attempt < hlsRequestAttempts {
+		if attempt < requestAttempts {
 			slog.Debug("Retrying HLS request", "target", description, "attempt", attempt, "error", lastErr)
 			if err := waitForRetry(ctx, attempt); err != nil {
 				return nil, err
 			}
 		}
 	}
-	return nil, fmt.Errorf("failed to fetch %s after %d attempts: %w", description, hlsRequestAttempts, lastErr)
+	return nil, fmt.Errorf("failed to fetch %s after %d attempts: %w", description, requestAttempts, lastErr)
 }
 
 type nonRetryableFetchError struct {
@@ -836,63 +858,87 @@ func (d *Downloader) m3u8Download(ctx context.Context, resp *http.Response, refe
 		d.addTotalPos(n)
 	}
 
-	sem := make(chan struct{}, hlsParallelSegments)
-
 	fetchCtx, cancelFetch := context.WithCancel(ctx)
-	defer cancelFetch()
 
-	for idx, task := range tasks {
-		idx, task := idx, task
+	fetchSegment := func(task segmentTask) segmentResult {
+		select {
+		case <-fetchCtx.Done():
+			return segmentResult{err: fetchCtx.Err()}
+		default:
+		}
 
-		go func() {
-			select {
-			case sem <- struct{}{}:
-				defer func() { <-sem }()
-			case <-fetchCtx.Done():
-				resultChans[idx] <- segmentResult{err: fetchCtx.Err()}
-				return
-			}
+		data, err := d.readURLWithRetryProgress(
+			fetchCtx,
+			task.url,
+			referer,
+			userAgent,
+			fmt.Sprintf("HLS segment %d", task.index),
+			recordContentLength,
+			recordBytes,
+		)
+		if err != nil {
+			return segmentResult{err: err}
+		}
 
-			select {
-			case <-fetchCtx.Done():
-				resultChans[idx] <- segmentResult{err: fetchCtx.Err()}
-				return
-			default:
-			}
-
-			data, err := d.readURLWithRetryProgress(
-				fetchCtx,
-				task.url,
-				referer,
-				userAgent,
-				fmt.Sprintf("HLS segment %d", task.index),
-				recordContentLength,
-				recordBytes,
+		data, err = decryptHLSSegment(data, task.key, task.iv)
+		if err != nil && task.keyURL != nil {
+			slog.Warn("HLS segment decrypt failed, retrying key fetch",
+				"segment", task.index,
+				"error", err,
 			)
-			if err != nil {
-				resultChans[idx] <- segmentResult{err: err}
-				return
+
+			newKey, keyErr := d.fetchHLSKey(fetchCtx, task.keyURL, referer, userAgent, nil, true)
+			if keyErr == nil {
+				data, err = decryptHLSSegment(data, newKey, task.iv)
 			}
+		}
 
-			data, err = decryptHLSSegment(data, task.key, task.iv)
-			if err != nil && task.keyURL != nil {
-				slog.Warn("HLS segment decrypt failed, retrying key fetch",
-					"segment", task.index,
-					"error", err,
-				)
-
-				newKey, keyErr := d.fetchHLSKey(fetchCtx, task.keyURL, referer, userAgent, nil, true)
-				if keyErr == nil {
-					data, err = decryptHLSSegment(data, newKey, task.iv)
-				}
-			}
-
-			resultChans[idx] <- segmentResult{data: data, err: err}
-		}()
+		return segmentResult{data: data, err: err}
 	}
 
+	workerCount := hlsParallelSegments
+	if len(tasks) < workerCount {
+		workerCount = len(tasks)
+	}
+
+	jobs := make(chan int)
+	var workerWG sync.WaitGroup
+	for i := 0; i < workerCount; i++ {
+		workerWG.Add(1)
+		go func() {
+			defer workerWG.Done()
+			for idx := range jobs {
+				result := fetchSegment(tasks[idx])
+				select {
+				case resultChans[idx] <- result:
+				case <-fetchCtx.Done():
+				}
+			}
+		}()
+	}
+	defer func() {
+		cancelFetch()
+		workerWG.Wait()
+	}()
+
+	go func() {
+		defer close(jobs)
+		for idx := range tasks {
+			select {
+			case jobs <- idx:
+			case <-fetchCtx.Done():
+				return
+			}
+		}
+	}()
+
 	for _, ch := range resultChans {
-		result := <-ch
+		var result segmentResult
+		select {
+		case result = <-ch:
+		case <-fetchCtx.Done():
+			return fetchCtx.Err()
+		}
 		if result.err != nil {
 			cancelFetch()
 			return result.err

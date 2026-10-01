@@ -30,6 +30,7 @@ func main() {
 }
 
 func run() int {
+	startedAt := time.Now()
 	args := &cli.Args{}
 	rootCmd := cli.NewRootCommand(args)
 
@@ -51,9 +52,18 @@ func run() int {
 	defer logger.Close()
 
 	// pull date and username for logging context
-	time := time.Now().Format("2006-01-02 15:04:05")
+	startTime := startedAt.Format("2006-01-02 15:04:05")
 	isRanAsAdmin := utils.IsExecutedAsAdmin()
-	slog.Info("gad started at " + time + " with admin privileges: " + strconv.FormatBool(isRanAsAdmin))
+	slog.Info("gad started at " + startTime + " with admin privileges: " + strconv.FormatBool(isRanAsAdmin))
+
+	if args.Url == "" && args.QueueFile == "" {
+		slog.Error("Missing target (use --help for help)")
+		return 1
+	}
+	if args.Retries < 0 {
+		slog.Error("Invalid retry count", "retries", args.Retries)
+		return 1
+	}
 
 	// Create data dir
 	dataDir, err := dirs.GetDataDir()
@@ -81,6 +91,7 @@ func run() int {
 
 	// Downloader for assets (FFmpeg, uBlock)
 	assetDownloader := download.NewDownloader("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/148.0.0.0 Safari/537.36", args.Debug, rateLimit)
+	assetDownloader.SetRetries(args.Retries)
 
 	// Create FFmpeg manager
 	ff := ffmpeg.New(dataDir)
@@ -121,6 +132,24 @@ func run() int {
 	}
 	assetDownloader.Close()
 	return 0
+}
+
+func runMode(args *cli.Args) string {
+	switch {
+	case args.QueueFile != "":
+		return "queue"
+	case args.Extractor != "":
+		return "single"
+	default:
+		return "series"
+	}
+}
+
+func runTarget(args *cli.Args) string {
+	if args.QueueFile != "" {
+		return args.QueueFile
+	}
+	return args.Url
 }
 
 func interruptContext(parent context.Context) (context.Context, func()) {
@@ -193,7 +222,7 @@ func (r *runner) Run() error {
 	}
 
 	slog.Debug("Series download", "url", r.args.Url)
-	return handleSeriesDownload(r.ctx, r.args, r.downloader, r.saveDir, scrapeCtx)
+	return handleSeriesDownload(r.ctx, r.args, r.downloader, r.saveDir, scrapeCtx, nil)
 }
 
 func (r *runner) runQueue() error {
@@ -208,41 +237,26 @@ func (r *runner) startBrowser() (context.Context, context.CancelFunc, error) {
 	return scrapeCtx, cancel, nil
 }
 
-func readQueueURLs(scanner *bufio.Scanner) ([]string, error) {
-	var urls []string
-	seen := make(map[string]struct{})
+func forEachQueueURL(scanner *bufio.Scanner, handle func(string) error) error {
+	var lines []string
 
 	for scanner.Scan() {
-		line := strings.TrimSpace(scanner.Text())
-		slog.Debug("Processing line from queue", "line", line)
-
-		if line == "" || strings.HasPrefix(line, "#") {
-			slog.Debug("Skipping invalid or commented line", "line", line)
-			continue
-		}
-
-		if commentIndex := strings.Index(line, "#"); commentIndex >= 0 {
-			line = strings.TrimSpace(line[:commentIndex])
-			slog.Debug("Removed comment from line", "line", line)
-		}
-		if line == "" {
-			continue
-		}
-
-		if _, ok := seen[line]; ok {
-			slog.Debug("Skipping duplicate URL", "url", line)
-			continue
-		}
-
-		seen[line] = struct{}{}
-		urls = append(urls, line)
-		slog.Debug("Added URL from queue", "url", line)
+		lines = append(lines, strings.TrimSpace(scanner.Text()))
 	}
 
 	if err := scanner.Err(); err != nil {
-		return nil, err
+		return err
 	}
-	return urls, nil
+
+	lines = utils.CleanQueueList(lines)
+
+	for _, line := range lines {
+		if err := handle(line); err != nil {
+			return err
+		}
+	}
+
+	return nil
 }
 
 func handleQueueDownloads(ctx context.Context, args *cli.Args, d *download.Downloader, cm *chrome.ChromeManager, saveDir string) error {
@@ -255,7 +269,13 @@ func handleQueueDownloads(ctx context.Context, args *cli.Args, d *download.Downl
 	defer queueFile.Close()
 	// i think theres a more elegant way. but i'm too lazy to refractor this again.
 	scanner := bufio.NewScanner(queueFile)
-	urls, err := readQueueURLs(scanner)
+
+	if err := os.MkdirAll(saveDir, 0755); err != nil {
+		slog.Error("Failed to create save directory", "error", err, "path", saveDir)
+		return err
+	}
+
+	folderMatcher, err := utils.NewSimilarFolderMatcher(saveDir)
 	if err != nil {
 		return err
 	}
@@ -267,7 +287,7 @@ func handleQueueDownloads(ctx context.Context, args *cli.Args, d *download.Downl
 	defer cancel()
 
 	hadError := false
-	for _, url := range urls {
+	if err := forEachQueueURL(scanner, func(url string) error {
 		if err := ctx.Err(); err != nil {
 			return err
 		}
@@ -277,13 +297,16 @@ func handleQueueDownloads(ctx context.Context, args *cli.Args, d *download.Downl
 		entryArgs.Url = url
 		slog.Info("Processing URL from queue", "url", entryArgs.Url)
 
-		if err := handleSeriesDownload(ctx, &entryArgs, d, saveDir, scrapeCtx); err != nil {
+		if err := handleSeriesDownload(ctx, &entryArgs, d, saveDir, scrapeCtx, folderMatcher); err != nil {
 			if isCancellation(ctx, err) {
 				return err
 			}
 			hadError = true
 			slog.Error("Failed to handle series download from queue", "error", err, "url", entryArgs.Url)
 		}
+		return nil
+	}); err != nil {
+		return err
 	}
 
 	slog.Info("Finished processing queue file")
@@ -293,7 +316,7 @@ func handleQueueDownloads(ctx context.Context, args *cli.Args, d *download.Downl
 	return nil
 }
 
-func handleSeriesDownload(ctx context.Context, args *cli.Args, d *download.Downloader, saveDir string, scrapeCtx context.Context) (err error) {
+func handleSeriesDownload(ctx context.Context, args *cli.Args, d *download.Downloader, saveDir string, scrapeCtx context.Context, folderMatcher *utils.SimilarFolderMatcher) (err error) {
 	dl, err := downloaders.GetDownloader(args.Url)
 	if err != nil {
 		slog.Error("Failed to get downloader", "error", err)
@@ -316,13 +339,17 @@ func handleSeriesDownload(ctx context.Context, args *cli.Args, d *download.Downl
 	slog.Info("Series", "title", info.Title)
 
 	if args.QueueFile != "" {
-		saveDir, err = queueSaveDir(saveDir, info.Title)
+		saveDir, err = queueSaveDir(saveDir, info.Title, folderMatcher)
 		if err != nil {
 			return err
 		}
 	}
 
+	seriesNameForCache := download.PrepareSeriesNameForFile(info.Title)
+	cache, _ := download.NewDirectoryCache(saveDir)
+
 	manager := download.NewDownloadManager(d, args.ConcurrentDownloads, saveDir, *info, args.SkipExisting)
+	manager.SetDirectoryCache(cache)
 	taskChan := make(chan *downloaders.DownloadTaskWrapper, 50)
 
 	managerErrCh := make(chan error, 1)
@@ -365,9 +392,6 @@ func handleSeriesDownload(ctx context.Context, args *cli.Args, d *download.Downl
 		}
 		return managerErr
 	}
-
-	seriesNameForCache := download.PrepareSeriesNameForFile(info.Title)
-	cache, _ := download.NewDirectoryCache(saveDir)
 
 	settings := downloaders.DownloadSettings{
 		DdosWaitEpisodes: nonNegativeUint32(args.DdosWaitEpisodes),
@@ -428,7 +452,7 @@ func nonNegativeUint32(v int) uint32 {
 	return uint32(v)
 }
 
-func queueSaveDir(baseDir, seriesTitle string) (string, error) {
+func queueSaveDir(baseDir, seriesTitle string, folderMatcher *utils.SimilarFolderMatcher) (string, error) {
 	slog.Debug("Downloading in Queue file mode")
 
 	if err := os.MkdirAll(baseDir, 0755); err != nil {
@@ -436,8 +460,16 @@ func queueSaveDir(baseDir, seriesTitle string) (string, error) {
 		return "", err
 	}
 
+	if folderMatcher == nil {
+		matcher, err := utils.NewSimilarFolderMatcher(baseDir)
+		if err != nil {
+			return "", err
+		}
+		folderMatcher = matcher
+	}
+
 	folderName := utils.CleanFolderName(seriesTitle)
-	similarFolder, err := utils.FindSimilarFolder(baseDir, folderName)
+	similarFolder, err := folderMatcher.Find(folderName)
 	if err != nil {
 		slog.Warn("No similar folder found, will create new one", "folder", folderName, "error", err)
 	} else {
@@ -458,6 +490,7 @@ func queueSaveDir(baseDir, seriesTitle string) (string, error) {
 		slog.Error("Failed to create save directory", "error", err, "path", saveDir)
 		return "", err
 	}
+	folderMatcher.Add(saveDir)
 	return saveDir, nil
 }
 

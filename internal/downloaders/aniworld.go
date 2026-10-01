@@ -2,6 +2,7 @@ package downloaders
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log/slog"
 	"net/http"
@@ -36,16 +37,34 @@ func (a *AniWorldSerienStream) GetSeriesInfo(ctx context.Context) (*SeriesInfo, 
 	url := a.ParsedUrl.GetSeriesUrl()
 	slog.Debug("Navigating to series page", "url", url)
 
-	// Navigate with long timeout for ddos-guard
-	navCtx, cancel := context.WithTimeout(ctx, 45*time.Second)
-	defer cancel()
+	const maxAttempts = 3
 
-	navErr := chromedp.Run(navCtx,
-		chromedp.Navigate(url),
-		chromedp.WaitVisible(`body`, chromedp.ByQuery),
-	)
+	// should fix #23
+	var navErr error
+	for attempt := 1; attempt <= maxAttempts; attempt++ {
+		navCtx, cancel := context.WithTimeout(ctx, 45*time.Second)
+		navErr = chromedp.Run(navCtx,
+			chromedp.Navigate(url),
+			chromedp.WaitVisible(`body`, chromedp.ByQuery),
+		)
+		cancel()
+
+		if navErr == nil {
+			break // success
+		}
+
+		if errors.Is(navErr, context.DeadlineExceeded) {
+			slog.Warn("Navigation timed out, retrying", "attempt", attempt, "error", navErr)
+			continue
+		}
+
+		// some other error (e.g. parent ctx cancelled)
+		slog.Warn("Navigation failed with non-timeout error", "error", navErr)
+		break
+	}
+
 	if navErr != nil {
-		slog.Warn("Initial navigation failed or timed out", "error", navErr)
+		slog.Warn("Navigation ultimately failed after retries", "error", navErr)
 	}
 
 	var pageInfo struct {
@@ -436,16 +455,33 @@ func (s *Scraper) scrapeEpisode(ctx context.Context, season, episode, maxEpisode
 	url := s.ParsedUrl.GetEpisodeUrl(season, episode)
 	slog.Debug("Navigating to episode page", "url", url)
 
-	// Long timeout for potential challenges
-	eCtx, cancel := context.WithTimeout(ctx, 45*time.Second)
-	defer cancel()
+	const maxAttempts = 3
 
-	err := chromedp.Run(eCtx,
-		chromedp.Navigate(url),
-		chromedp.WaitVisible(`.changeLanguageBox`, chromedp.ByQuery),
-	)
+	//should fix #23
+	var err error
+	for attempt := 1; attempt <= maxAttempts; attempt++ {
+		eCtx, cancel := context.WithTimeout(ctx, 45*time.Second)
+		err = chromedp.Run(eCtx,
+			chromedp.Navigate(url),
+			chromedp.WaitVisible(`.changeLanguageBox`, chromedp.ByQuery),
+		)
+		cancel()
+
+		if err == nil {
+			break
+		}
+
+		if errors.Is(err, context.DeadlineExceeded) {
+			slog.Warn("Episode page load timed out, retrying", "attempt", attempt, "error", err)
+			continue
+		}
+
+		// non-timeout error
+		break
+	}
+
 	if err != nil {
-		return fmt.Errorf("failed to load episode page: %w", err)
+		return fmt.Errorf("failed to load episode page after %d attempts: %w", maxAttempts, err)
 	}
 
 	var options []struct {

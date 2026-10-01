@@ -50,6 +50,13 @@ func (c *DirectoryCache) CheckIfEpisodeExists(name string) bool {
 	return false
 }
 
+func (c *DirectoryCache) Add(name string) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
+	c.files[name] = struct{}{}
+}
+
 func (c *DirectoryCache) HasPrefix(prefix string) bool {
 	c.mu.RLock()
 	defer c.mu.RUnlock()
