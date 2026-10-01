@@ -1,6 +1,6 @@
 module bugmaschine/gad
 
-go 1.26
+go 1.26.0
 
 require (
 	github.com/chromedp/cdproto v0.0.0-20260427013145-5737772c319b
@@ -8,14 +8,14 @@ require (
 	github.com/fatih/color v1.19.0
 	github.com/grafov/m3u8 v0.12.1
 	github.com/spf13/cobra v1.10.2
-	github.com/vbauerster/mpb/v8 v8.12.1
+	github.com/vbauerster/mpb/v8 v8.16.2
+	golang.org/x/term v0.45.0
 	golang.org/x/time v0.15.0
 )
 
 require (
-	github.com/vcaesar/keycode v0.10.1 // indirect
+	github.com/vbauerster/cupwriter v0.0.5 // indirect
 	golang.design/x/mainthread v0.3.0 // indirect
-	golang.org/x/term v0.45.0 // indirect
 )
 
 require (
@@ -31,9 +31,8 @@ require (
 	github.com/inconshreveable/mousetrap v1.1.0 // indirect
 	github.com/mattn/go-colorable v0.1.15 // indirect
 	github.com/mattn/go-isatty v0.0.22 // indirect
-	github.com/mattn/go-runewidth v0.0.24 // indirect
-	github.com/robotn/gohook v0.42.3
+	github.com/mattn/go-runewidth v0.0.30 // indirect
 	github.com/spf13/pflag v1.0.10 // indirect
 	golang.design/x/hotkey v0.6.1
-	golang.org/x/sys v0.47.0 // indirect
+	golang.org/x/sys v0.48.0 // indirect
 )
