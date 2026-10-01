@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"os"
 	"path/filepath"
 	"sync"
 
@@ -121,6 +122,9 @@ func (m *DownloadManager) downloadTask(ctx context.Context, seriesName string, c
 		SetUserAgent(task.UserAgent).
 		SetOnStart(task.OnDownloadStart).
 		SetOnComplete(task.OnDownloadComplete)
+	if err := os.MkdirAll(filepath.Dir(dt.OutputPath), 0755); err != nil {
+		return fmt.Errorf("failed to create output directory: %w", err)
+	}
 
 	if err := m.downloader.DownloadToFile(ctx, dt); err != nil {
 		if isContextError(ctx, err) {

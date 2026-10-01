@@ -75,7 +75,7 @@ func (a *AniWorldSerienStream) GetSeriesInfo(ctx context.Context) (*SeriesInfo, 
 	// Extract optional selectors without waiting. Error pages do not contain the
 	// normal title nodes, and waiting for them makes invalid links look hung.
 	slog.Debug("Extracting series info...")
-	extractErr := chromedp.Run(navCtx,
+	extractErr := chromedp.Run(ctx,
 		chromedp.Evaluate(`(() => {
 			const text = selector => document.querySelector(selector)?.textContent?.trim() || "";
 			const attr = (selector, name) => document.querySelector(selector)?.getAttribute(name)?.trim() || "";

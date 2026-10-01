@@ -343,6 +343,24 @@ func handleSeriesDownload(ctx context.Context, args *cli.Args, d *download.Downl
 		if err != nil {
 			return err
 		}
+
+		seriesDirExisted := false
+		if dirInfo, statErr := os.Stat(saveDir); statErr == nil && dirInfo.IsDir() {
+			seriesDirExisted = true
+		}
+		defer func() {
+			entries, readErr := os.ReadDir(saveDir)
+			if readErr != nil {
+				return
+			}
+			if !seriesDirExisted && len(entries) == 0 {
+				_ = os.Remove(saveDir)
+				return
+			}
+			if folderMatcher != nil {
+				folderMatcher.Add(saveDir)
+			}
+		}()
 	}
 
 	seriesNameForCache := download.PrepareSeriesNameForFile(info.Title)
@@ -485,12 +503,6 @@ func queueSaveDir(baseDir, seriesTitle string, folderMatcher *utils.SimilarFolde
 	saveDir := filepath.Join(baseDir, folderName)
 	slog.Info("No similar folder found, will create new one", "folder", folderName)
 	slog.Info("Saving to", "directory", saveDir)
-
-	if err := os.MkdirAll(saveDir, 0755); err != nil {
-		slog.Error("Failed to create save directory", "error", err, "path", saveDir)
-		return "", err
-	}
-	folderMatcher.Add(saveDir)
 	return saveDir, nil
 }
 
