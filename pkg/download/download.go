@@ -609,7 +609,8 @@ func (d *Downloader) simpleDownload(ctx context.Context, resp *http.Response, ta
 		}
 	}
 
-	proxyReader := bar.ProxyReader(reader)
+	// todo: actually handle err
+	proxyReader, _ := bar.ProxyReader(reader)
 	defer proxyReader.Close()
 
 	// Wrap proxyReader to update totalBar
