@@ -9,7 +9,7 @@ require (
 	github.com/grafov/m3u8 v0.12.1
 	github.com/spf13/cobra v1.10.2
 	github.com/vbauerster/mpb/v8 v8.16.2
-	golang.org/x/term v0.46.0
+	golang.org/x/term v0.47.0
 	golang.org/x/time v0.16.0
 )
 
@@ -34,5 +34,5 @@ require (
 	github.com/mattn/go-runewidth v0.0.30 // indirect
 	github.com/spf13/pflag v1.0.10 // indirect
 	golang.design/x/hotkey v0.6.4
-	golang.org/x/sys v0.48.0 // indirect
+	golang.org/x/sys v0.49.0 // indirect
 )
