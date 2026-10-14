@@ -3,7 +3,7 @@ module bugmaschine/gad
 go 1.26.0
 
 require (
-	github.com/chromedp/cdproto v0.0.0-20260922220944-a19bff23514f
+	github.com/chromedp/cdproto v0.157.9
 	github.com/chromedp/chromedp v0.16.0
 	github.com/fatih/color v1.19.0
 	github.com/grafov/m3u8 v0.12.1
@@ -22,7 +22,6 @@ require (
 	github.com/VividCortex/ewma v1.2.0 // indirect
 	github.com/acarl005/stripansi v0.0.0-20180116102854-5a71ef0e047d // indirect
 	github.com/brianvoe/gofakeit/v7 v7.17.1
-	github.com/chromedp/sysutil v1.1.0 // indirect
 	github.com/clipperhouse/uax29/v2 v2.7.0 // indirect
 	github.com/go-json-experiment/json v0.0.0-20260820222146-c27c302e5fc3 // indirect
 	github.com/gobwas/httphead v0.1.0 // indirect
